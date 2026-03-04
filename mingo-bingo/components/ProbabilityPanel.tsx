@@ -22,7 +22,7 @@ interface RowProps {
 
 function oneIn(value: number, count: number, minSongs: number): string | null {
   if (count < minSongs) return null;
-  if (value <= 0) return "> 100,000";
+  if (value <= 0) return "> 1,000,000";
   if (value >= 1) return "1";
   const x = 1 / value;
   return x >= 10 ? Math.round(x).toLocaleString() : x.toFixed(1);
