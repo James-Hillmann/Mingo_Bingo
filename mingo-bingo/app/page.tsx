@@ -6,6 +6,8 @@ import { loadCount, saveCount, resetCount } from "@/lib/storage";
 import { Counter } from "@/components/Counter";
 import { SongButton } from "@/components/SongButton";
 import { ProbabilityPanel } from "@/components/ProbabilityPanel";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { useTranslations } from "@/components/LanguageProvider";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +23,7 @@ export default function Home() {
   const [count, setCount] = useState(0);
   const [showReset, setShowReset] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const { t } = useTranslations();
 
   // Load persisted count after mount (avoids SSR mismatch)
   useEffect(() => {
@@ -55,12 +58,15 @@ export default function Home() {
     <main className="min-h-screen bg-zinc-950 flex flex-col items-center px-4 py-10">
       <div className="w-full max-w-sm flex flex-col gap-8">
         {/* Header */}
-        <div className="text-center">
+        <div className="text-center relative">
+          <div className="absolute right-0 top-0">
+            <LanguageSwitcher />
+          </div>
           <h1 className="text-2xl font-black tracking-tight text-white uppercase">
-            Mingo Bingo
+            {t.appTitle}
           </h1>
           <p className="text-xs text-zinc-600 mt-0.5 tracking-widest uppercase">
-            RNG Tracker
+            {t.rngTracker}
           </p>
         </div>
 
@@ -99,7 +105,7 @@ export default function Home() {
           onClick={() => setShowReset(true)}
           className="text-xs text-zinc-700 hover:text-zinc-500 transition-colors mx-auto"
         >
-          Reset Game
+          {t.resetGame}
         </button>
       </div>
 
@@ -107,9 +113,9 @@ export default function Home() {
       <Dialog open={showReset} onOpenChange={setShowReset}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-xs mx-auto">
           <DialogHeader>
-            <DialogTitle>Reset the game?</DialogTitle>
+            <DialogTitle>{t.resetTitle}</DialogTitle>
             <DialogDescription className="text-zinc-400">
-              This will set the song count back to zero.
+              {t.resetDescription}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-row gap-2 justify-end">
@@ -118,13 +124,13 @@ export default function Home() {
               onClick={() => setShowReset(false)}
               className="text-zinc-400 hover:text-white"
             >
-              Cancel
+              {t.cancel}
             </Button>
             <Button
               onClick={handleReset}
               className="bg-red-600 hover:bg-red-500 text-white"
             >
-              Reset
+              {t.reset}
             </Button>
           </DialogFooter>
         </DialogContent>

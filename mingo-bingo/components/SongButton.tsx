@@ -1,11 +1,15 @@
 "use client";
 
+import { useTranslations } from "@/components/LanguageProvider";
+
 interface SongButtonProps {
   onClick: () => void;
   disabled?: boolean;
 }
 
 export function SongButton({ onClick, disabled }: SongButtonProps) {
+  const { t } = useTranslations();
+
   return (
     <button
       onClick={onClick}
@@ -21,7 +25,7 @@ export function SongButton({ onClick, disabled }: SongButtonProps) {
       `}
       style={{ minHeight: "96px" }}
     >
-      {disabled ? "All Songs Called" : "Song Played!"}
+      {disabled ? t.allSongsCalled : t.songPlayed}
     </button>
   );
 }

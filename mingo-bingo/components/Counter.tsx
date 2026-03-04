@@ -1,9 +1,14 @@
+"use client";
+
+import { useTranslations } from "@/components/LanguageProvider";
+
 interface CounterProps {
   count: number;
   total?: number;
 }
 
 export function Counter({ count, total = 75 }: CounterProps) {
+  const { t } = useTranslations();
   const pct = Math.round((count / total) * 100);
 
   return (
@@ -13,7 +18,7 @@ export function Counter({ count, total = 75 }: CounterProps) {
         <span className="text-3xl font-semibold text-zinc-400"> / {total}</span>
       </div>
       <p className="mt-1 text-sm text-zinc-500 uppercase tracking-widest">
-        songs played · {pct}%
+        {t.songsPlayed} · {pct}%
       </p>
     </div>
   );
