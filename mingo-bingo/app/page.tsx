@@ -15,6 +15,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 
 export default function Home() {
   const [count, setCount] = useState(0);
@@ -30,6 +31,12 @@ export default function Home() {
   function handleSongPlayed() {
     if (count >= 75) return;
     const next = count + 1;
+    setCount(next);
+    saveCount(next);
+  }
+
+  function handleSlider(val: number[]) {
+    const next = val[0];
     setCount(next);
     saveCount(next);
   }
@@ -63,11 +70,28 @@ export default function Home() {
         {/* Big button */}
         <SongButton onClick={handleSongPlayed} disabled={count >= 75} />
 
+        {/* Slider */}
+        <div className="space-y-3">
+          <Slider
+            min={0}
+            max={75}
+            step={1}
+            value={[count]}
+            onValueChange={handleSlider}
+            className="w-full"
+          />
+          <div className="flex justify-between text-xs text-zinc-600">
+            <span>0</span>
+            <span>75</span>
+          </div>
+        </div>
+
         {/* Probabilities */}
         <ProbabilityPanel
           line={probs.line}
           twoLine={probs.twoLine}
           blackout={probs.blackout}
+          count={count}
         />
 
         {/* Reset */}
