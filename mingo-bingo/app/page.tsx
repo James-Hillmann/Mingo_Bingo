@@ -19,11 +19,38 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 
+function useTimeSinceLastSong() {
+  const [lastSongTime, setLastSongTime] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (lastSongTime === null) return;
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - lastSongTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lastSongTime]);
+
+  function recordSong() {
+    setLastSongTime(Date.now());
+    setElapsed(0);
+  }
+
+  function formatElapsed(s: number) {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return m > 0 ? `${m}m ${sec}s` : `${s}s`;
+  }
+
+  return { elapsed, lastSongTime, recordSong, formatElapsed };
+}
+
 export default function Home() {
   const [count, setCount] = useState(0);
   const [showReset, setShowReset] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { t } = useTranslations();
+  const { elapsed, lastSongTime, recordSong, formatElapsed } = useTimeSinceLastSong();
 
   // Load persisted count after mount (avoids SSR mismatch)
   useEffect(() => {
@@ -36,6 +63,7 @@ export default function Home() {
     const next = count + 1;
     setCount(next);
     saveCount(next);
+    recordSong();
   }
 
   function handleSlider(val: number[]) {
@@ -75,6 +103,13 @@ export default function Home() {
 
         {/* Big button */}
         <SongButton onClick={handleSongPlayed} disabled={count >= 75} />
+
+        {/* Timer since last song */}
+        <div className="text-center text-sm text-zinc-500">
+          {lastSongTime === null
+            ? "No song played yet"
+            : `Last song: ${formatElapsed(elapsed)} ago`}
+        </div>
 
         {/* Slider */}
         <div className="space-y-3">
