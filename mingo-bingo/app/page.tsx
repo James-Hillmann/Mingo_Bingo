@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { PROBABILITIES } from "@/lib/probabilities";
 import { loadCount, saveCount, resetCount } from "@/lib/storage";
 import { Counter } from "@/components/Counter";
@@ -19,9 +20,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 
+function formatSeconds(s: number) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}m ${sec}s` : `${s}s`;
+}
+
+type TimerSnapshot = { lastSongTime: number | null; intervals: number[] };
+
 function useTimeSinceLastSong() {
   const [lastSongTime, setLastSongTime] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [intervals, setIntervals] = useState<number[]>([]);
+  const [history, setHistory] = useState<TimerSnapshot[]>([]);
 
   useEffect(() => {
     if (lastSongTime === null) return;
@@ -32,17 +43,32 @@ function useTimeSinceLastSong() {
   }, [lastSongTime]);
 
   function recordSong() {
-    setLastSongTime(Date.now());
+    const now = Date.now();
+    setHistory((prev) => [...prev, { lastSongTime, intervals }]);
+    if (lastSongTime !== null) {
+      const gap = Math.floor((now - lastSongTime) / 1000);
+      setIntervals((prev) => [gap, ...prev].slice(0, 3));
+    }
+    setLastSongTime(now);
     setElapsed(0);
   }
 
-  function formatElapsed(s: number) {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return m > 0 ? `${m}m ${sec}s` : `${s}s`;
+  function undoSong() {
+    setHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const snapshot = prev[prev.length - 1];
+      setLastSongTime(snapshot.lastSongTime);
+      setIntervals(snapshot.intervals);
+      setElapsed(
+        snapshot.lastSongTime
+          ? Math.floor((Date.now() - snapshot.lastSongTime) / 1000)
+          : 0
+      );
+      return prev.slice(0, -1);
+    });
   }
 
-  return { elapsed, lastSongTime, recordSong, formatElapsed };
+  return { elapsed, lastSongTime, intervals, history, recordSong, undoSong };
 }
 
 export default function Home() {
@@ -50,7 +76,8 @@ export default function Home() {
   const [showReset, setShowReset] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { t } = useTranslations();
-  const { elapsed, lastSongTime, recordSong, formatElapsed } = useTimeSinceLastSong();
+  const { elapsed, lastSongTime, intervals, recordSong, undoSong } = useTimeSinceLastSong();
+  const [countHistory, setCountHistory] = useState<number[]>([]);
 
   // Load persisted count after mount (avoids SSR mismatch)
   useEffect(() => {
@@ -60,10 +87,20 @@ export default function Home() {
 
   function handleSongPlayed() {
     if (count >= 75) return;
+    setCountHistory((prev) => [...prev, count]);
     const next = count + 1;
     setCount(next);
     saveCount(next);
     recordSong();
+  }
+
+  function handleUndo() {
+    if (countHistory.length === 0) return;
+    const prev = countHistory[countHistory.length - 1];
+    setCountHistory((h) => h.slice(0, -1));
+    setCount(prev);
+    saveCount(prev);
+    undoSong();
   }
 
   function handleSlider(val: number[]) {
@@ -101,14 +138,38 @@ export default function Home() {
         {/* Counter */}
         <Counter count={count} />
 
-        {/* Big button */}
-        <SongButton onClick={handleSongPlayed} disabled={count >= 75} />
+        {/* Big button + undo */}
+        <div className="flex items-stretch gap-2">
+          <div className="flex-1">
+            <SongButton onClick={handleSongPlayed} disabled={count >= 75} />
+          </div>
+          <button
+            onClick={handleUndo}
+            disabled={countHistory.length === 0}
+            className={`px-3 rounded-2xl text-xs font-bold transition-all duration-100 select-none
+              ${countHistory.length === 0
+                ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                : "bg-red-600 hover:bg-red-500 active:scale-95 active:bg-red-700 text-white shadow-lg shadow-red-900/40 cursor-pointer"
+              }`}
+          >
+            Undo
+          </button>
+        </div>
 
         {/* Timer since last song */}
-        <div className="text-center text-sm text-zinc-500">
-          {lastSongTime === null
-            ? "No song played yet"
-            : `Last song: ${formatElapsed(elapsed)} ago`}
+        <div className="text-center text-sm text-zinc-500 space-y-1">
+          <div>
+            {lastSongTime === null
+              ? "No song played yet"
+              : `Last song: ${formatSeconds(elapsed)} ago`}
+          </div>
+          {intervals.length > 0 && (
+            <div className="text-xs text-zinc-600 space-y-0.5">
+              {intervals.map((s, i) => (
+                <div key={i}>#{i + 1}: {formatSeconds(s)}</div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Slider */}
@@ -134,6 +195,14 @@ export default function Home() {
           blackout={probs.blackout}
           count={count}
         />
+
+        {/* Boards link */}
+        <Link
+          href="/boards"
+          className="w-full flex items-center justify-center gap-2 border border-zinc-700 hover:border-zinc-500 rounded-xl py-3 text-sm font-semibold text-zinc-300 hover:text-white transition-colors"
+        >
+          📋 My Boards
+        </Link>
 
         {/* Reset */}
         <button
