@@ -9,6 +9,7 @@ type Cell = { text: string };
 type Board = {
   imageUrl: string;
   grid: Cell[][];
+  rawText: string;
   processing: boolean;
   error?: string;
 };
@@ -27,6 +28,34 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.onerror = reject;
     img.src = src;
   });
+}
+
+/** Convert image to greyscale canvas with boosted contrast for better OCR */
+function preprocessToCanvas(img: HTMLImageElement): HTMLCanvasElement {
+  // Scale up if small — Tesseract works better with larger images
+  const MAX_DIM = 2400;
+  const scale = Math.min(3, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.round(img.naturalWidth * scale);
+  const h = Math.round(img.naturalHeight * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  const contrast = 1.8; // boost contrast so text stands out
+
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    const boosted = Math.min(255, Math.max(0, contrast * (gray - 128) + 128));
+    d[i] = d[i + 1] = d[i + 2] = boosted;
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
 }
 
 function getCommonSongs(boards: (Board | null)[]): Set<string> {
@@ -57,11 +86,10 @@ function UploadZone({ onUpload }: { onUpload: (file: File) => void }) {
     <label className="border-2 border-dashed border-zinc-700 rounded-xl p-8 flex flex-col items-center gap-2 cursor-pointer hover:border-zinc-500 active:border-zinc-400 transition-colors">
       <span className="text-4xl">📷</span>
       <span className="text-zinc-300 text-sm font-medium">Tap to upload board photo</span>
-      <span className="text-zinc-500 text-xs text-center">Photo of your music bingo card</span>
+      <span className="text-zinc-500 text-xs text-center">Choose a photo or take one now</span>
       <input
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -118,6 +146,7 @@ function EditableCell({
 export default function BoardsPage() {
   const [boards, setBoards] = useState<(Board | null)[]>([null, null]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showRaw, setShowRaw] = useState<boolean[]>([false, false]);
 
   const commonSongs = getCommonSongs(boards);
   const anyReady = boards.some((b) => b && !b.processing);
@@ -141,44 +170,72 @@ export default function BoardsPage() {
     const imageUrl = URL.createObjectURL(file);
     setBoards((prev) => {
       const next = [...prev];
-      next[boardIndex] = { imageUrl, grid: emptyGrid(), processing: true };
+      next[boardIndex] = { imageUrl, grid: emptyGrid(), rawText: "", processing: true };
       return next;
     });
 
     try {
-      const { createWorker } = await import("tesseract.js");
-      const worker = await createWorker("eng");
+      const { createWorker, PSM } = await import("tesseract.js");
 
       const img = await loadImage(imageUrl);
-      const result = await worker.recognize(imageUrl);
+      const canvas = preprocessToCanvas(img);
+      const scaleX = img.naturalWidth / canvas.width;
+      const scaleY = img.naturalHeight / canvas.height;
+
+      const worker = await createWorker("eng");
+      // PSM 11 = sparse text — finds as much text as possible without assuming layout
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+
+      const result = await worker.recognize(canvas);
       await worker.terminate();
 
-      const grid = emptyGrid();
-      const cellW = img.naturalWidth / 5;
-      const cellH = img.naturalHeight / 5;
+      const rawText = result.data.text.trim();
 
-      // Flatten words from blocks → paragraphs → lines → words
+      const grid = emptyGrid();
+      const cellW = canvas.width / 5;
+      const cellH = canvas.height / 5;
+
+      // Flatten all words (no confidence filter — accept everything detected)
       const words =
         result.data.blocks?.flatMap((b) =>
           b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words))
         ) ?? [];
 
       for (const word of words) {
-        if (word.confidence < 25) continue;
+        const text = word.text.trim();
+        if (!text) continue;
+        // bbox is in canvas (preprocessed) coordinates
         const cx = (word.bbox.x0 + word.bbox.x1) / 2;
         const cy = (word.bbox.y0 + word.bbox.y1) / 2;
         const col = Math.min(Math.floor(cx / cellW), 4);
         const row = Math.min(Math.floor(cy / cellH), 4);
         const cell = grid[row][col];
-        cell.text = cell.text ? cell.text + " " + word.text : word.text;
+        cell.text = cell.text ? cell.text + " " + text : text;
+      }
+
+      // If the grid is still completely empty but we got raw text,
+      // distribute detected lines evenly across the grid as a fallback
+      const anyFilled = grid.some((r) => r.some((c) => c.text));
+      if (!anyFilled && rawText) {
+        const lines = rawText
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+        let li = 0;
+        for (let r = 0; r < 5 && li < lines.length; r++) {
+          for (let c = 0; c < 5 && li < lines.length; c++) {
+            grid[r][c].text = lines[li++];
+          }
+        }
       }
 
       setBoards((prev) => {
         const next = [...prev];
-        next[boardIndex] = { imageUrl, grid, processing: false };
+        next[boardIndex] = { imageUrl, grid, rawText, processing: false };
         return next;
       });
-    } catch {
+    } catch (err) {
+      console.error("OCR error:", err);
       setBoards((prev) => {
         const next = [...prev];
         if (next[boardIndex]) {
@@ -203,6 +260,10 @@ export default function BoardsPage() {
       }
       return next;
     });
+  }
+
+  function toggleRaw(bi: number) {
+    setShowRaw((prev) => prev.map((v, i) => (i === bi ? !v : v)));
   }
 
   // Build search result summary
@@ -322,12 +383,34 @@ export default function BoardsPage() {
                   )}
                 </div>
 
+                {/* Raw OCR text toggle (debug) */}
+                {boards[bi]!.rawText && (
+                  <div>
+                    <button
+                      onClick={() => toggleRaw(bi)}
+                      className="text-xs text-zinc-600 hover:text-zinc-400 w-full text-center"
+                    >
+                      {showRaw[bi] ? "Hide" : "Show"} raw scan text
+                    </button>
+                    {showRaw[bi] && (
+                      <pre className="mt-1 bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[10px] text-zinc-400 whitespace-pre-wrap overflow-auto max-h-40">
+                        {boards[bi]!.rawText}
+                      </pre>
+                    )}
+                  </div>
+                )}
+
+                {!boards[bi]!.rawText && !boards[bi]!.error && (
+                  <p className="text-zinc-600 text-xs text-center">
+                    No text detected — try a clearer photo, or tap cells to enter manually
+                  </p>
+                )}
+
                 <label className="text-xs text-zinc-600 hover:text-zinc-400 text-center cursor-pointer mt-1">
                   Re-upload image
                   <input
                     type="file"
                     accept="image/*"
-                    capture="environment"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
