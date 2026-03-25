@@ -81,22 +81,35 @@ function getCommonSongs(boards: (Board | null)[]): Set<string> {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function UploadZone({ onUpload }: { onUpload: (file: File) => void }) {
+function UploadZone({
+  onUpload,
+  onManual,
+}: {
+  onUpload: (file: File) => void;
+  onManual: () => void;
+}) {
   return (
-    <label className="border-2 border-dashed border-zinc-700 rounded-xl p-8 flex flex-col items-center gap-2 cursor-pointer hover:border-zinc-500 active:border-zinc-400 transition-colors">
-      <span className="text-4xl">📷</span>
-      <span className="text-zinc-300 text-sm font-medium">Tap to upload board photo</span>
-      <span className="text-zinc-500 text-xs text-center">Choose a photo or take one now</span>
-      <input
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onUpload(f);
-        }}
-      />
-    </label>
+    <div className="flex flex-col gap-2">
+      <label className="border-2 border-dashed border-zinc-700 rounded-xl p-6 flex flex-col items-center gap-2 cursor-pointer hover:border-zinc-500 active:border-zinc-400 transition-colors">
+        <span className="text-3xl">📷</span>
+        <span className="text-zinc-300 text-sm font-medium">Tap to upload board photo</span>
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onUpload(f);
+          }}
+        />
+      </label>
+      <button
+        onClick={onManual}
+        className="w-full border border-zinc-700 rounded-xl py-3 text-sm text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+      >
+        ✏️ Enter manually
+      </button>
+    </div>
   );
 }
 
@@ -164,6 +177,14 @@ export default function BoardsPage() {
     if (isMatch(text)) return "bg-green-700 border-green-500 text-white font-semibold";
     if (isCommon(text)) return "bg-amber-900/50 border-amber-600 text-amber-200";
     return "bg-zinc-800 border-zinc-700 text-zinc-300";
+  }
+
+  function initManual(boardIndex: number) {
+    setBoards((prev) => {
+      const next = [...prev];
+      next[boardIndex] = { imageUrl: "", grid: emptyGrid(), rawText: "", processing: false };
+      return next;
+    });
   }
 
   async function handleUpload(boardIndex: number, file: File) {
@@ -357,7 +378,7 @@ export default function BoardsPage() {
             </h2>
 
             {!boards[bi] ? (
-              <UploadZone onUpload={(f) => handleUpload(bi, f)} />
+              <UploadZone onUpload={(f) => handleUpload(bi, f)} onManual={() => initManual(bi)} />
             ) : boards[bi]!.processing ? (
               <div className="border border-zinc-700 rounded-xl p-6 text-center">
                 <p className="text-zinc-400 text-sm animate-pulse">Scanning board…</p>
