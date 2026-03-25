@@ -48,6 +48,26 @@ console.log("");
 
 const userToken = process.env.USER_TOKEN;
 
+// Step 2b2: GET /me/playlists — check raw structure
+console.log("--- Step 2b2: GET /me/playlists (raw first item) ---");
+if (userToken) {
+  const plRes = await fetch("https://api.spotify.com/v1/me/playlists?limit=3", {
+    headers: { Authorization: `Bearer ${userToken}` },
+  });
+  const plData = await plRes.json();
+  console.log("Status:", plRes.status);
+  if (plRes.ok && plData.items?.[0]) {
+    const first = plData.items[0];
+    console.log("First playlist keys:", Object.keys(first));
+    console.log("name:", first.name);
+    console.log("tracks:", first.tracks);
+    console.log("items:", first.items);
+  }
+} else {
+  console.log("Skipped — no user token");
+}
+console.log("");
+
 // Step 2b: check /me to verify token and see user id
 console.log("--- Step 2b: GET /me (verify token) ---");
 if (userToken) {

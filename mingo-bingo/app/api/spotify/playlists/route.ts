@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const playlists = data.items?.map((p: any) => ({
     id: p.id,
     name: p.name,
-    total: p.tracks?.total ?? 0,
+    total: p.tracks?.total ?? p.items?.total ?? 0,
     image: p.images?.[0]?.url ?? null,
   })) ?? [];
 
