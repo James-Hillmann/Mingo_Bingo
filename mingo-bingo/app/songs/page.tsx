@@ -179,6 +179,7 @@ function SongsContent() {
       if (res.status === 401) { clearTokens(); setConnected(false); return; }
       if (!res.ok) throw new Error(`${data.error ?? "Failed"} (${res.status})`);
 
+      alert(JSON.stringify(data._debug));
       setTracks(data.tracks);
       setPlaylistName(data.name);
       localStorage.setItem(KEYS.songsUrl, url);

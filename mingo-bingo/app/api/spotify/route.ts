@@ -56,5 +56,14 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ name: playlistData.name ?? "Playlist", tracks });
+  // TEMP DEBUG
+  return NextResponse.json({
+    name: playlistData.name ?? "Playlist",
+    tracks,
+    _debug: {
+      itemCount: playlistData?.tracks?.items?.length ?? "no items key",
+      firstItem: playlistData?.tracks?.items?.[0] ?? "empty",
+      keys: Object.keys(playlistData ?? {}),
+    }
+  });
 }
