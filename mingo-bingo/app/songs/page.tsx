@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Track } from "@/app/api/spotify/route";
 
@@ -29,6 +29,14 @@ function TrackRow({ track, played }: { track: Track; played: boolean }) {
 }
 
 export default function SongsPage() {
+  return (
+    <Suspense>
+      <SongsContent />
+    </Suspense>
+  );
+}
+
+function SongsContent() {
   const searchParams = useSearchParams();
   const [playlistUrl, setPlaylistUrl] = useState("");
   const [playlistName, setPlaylistName] = useState<string | null>(null);
