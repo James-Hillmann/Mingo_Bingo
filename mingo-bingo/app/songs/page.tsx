@@ -44,6 +44,10 @@ async function getToken(): Promise<string | null> {
   return data.access_token;
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type Playlist = { id: string; name: string; total: number; image: string | null };
+
 // ── Components ────────────────────────────────────────────────────────────────
 
 function TrackRow({ track, played }: { track: Track; played: boolean }) {
@@ -70,11 +74,12 @@ export default function SongsPage() {
 
 function SongsContent() {
   const searchParams = useSearchParams();
-  const [playlistUrl, setPlaylistUrl] = useState("");
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [playlistName, setPlaylistName] = useState<string | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [calledSongs, setCalledSongs] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [loadingPlaylists, setLoadingPlaylists] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -88,15 +93,15 @@ function SongsContent() {
       return;
     }
     try {
-      const url = localStorage.getItem(KEYS.songsUrl);
       const name = localStorage.getItem(KEYS.songsName);
       const saved = localStorage.getItem(KEYS.songsTracks);
       const called = localStorage.getItem(KEYS.calledSongs);
-      if (url) setPlaylistUrl(url);
       if (name) setPlaylistName(name);
       if (saved) setTracks(JSON.parse(saved));
       if (called) setCalledSongs(new Set(JSON.parse(called)));
-      setConnected(!!localStorage.getItem(KEYS.spRefresh));
+      const hasToken = !!localStorage.getItem(KEYS.spRefresh);
+      setConnected(hasToken);
+      if (hasToken && !saved) fetchPlaylists();
     } catch {}
     setMounted(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,20 +124,57 @@ function SongsContent() {
       localStorage.setItem(KEYS.spExpires, String(Date.now() + data.expires_in * 1000));
       window.history.replaceState({}, "", "/songs");
       setConnected(true);
+      fetchPlaylists();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed");
     }
     try {
-      const url = localStorage.getItem(KEYS.songsUrl);
       const name = localStorage.getItem(KEYS.songsName);
       const saved = localStorage.getItem(KEYS.songsTracks);
       const called = localStorage.getItem(KEYS.calledSongs);
-      if (url) setPlaylistUrl(url);
       if (name) setPlaylistName(name);
       if (saved) setTracks(JSON.parse(saved));
       if (called) setCalledSongs(new Set(JSON.parse(called)));
     } catch {}
     setMounted(true);
+  }
+
+  async function fetchPlaylists() {
+    setLoadingPlaylists(true);
+    try {
+      const token = await getToken();
+      if (!token) { clearTokens(); setConnected(false); return; }
+      const res = await fetch("/api/spotify/playlists", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.status === 401) { clearTokens(); setConnected(false); return; }
+      if (res.ok) setPlaylists(data.playlists);
+    } catch {}
+    setLoadingPlaylists(false);
+  }
+
+  async function loadPlaylist(id: string, name: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) { clearTokens(); setConnected(false); return; }
+      const res = await fetch(`/api/spotify?playlist=${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.status === 401) { clearTokens(); setConnected(false); return; }
+      if (!res.ok) throw new Error(data.error ?? "Failed to load playlist");
+      setTracks(data.tracks);
+      setPlaylistName(name);
+      localStorage.setItem(KEYS.songsName, name);
+      localStorage.setItem(KEYS.songsTracks, JSON.stringify(data.tracks));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleConnect() {
@@ -143,35 +185,9 @@ function SongsContent() {
     window.location.href = `/api/spotify/login?code_challenge=${encodeURIComponent(challenge)}`;
   }
 
-  async function loadPlaylist() {
-    const url = playlistUrl.trim();
-    if (!url) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      if (!token) { clearTokens(); setConnected(false); return; }
-      const res = await fetch(`/api/spotify?playlist=${encodeURIComponent(url)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.status === 401) { clearTokens(); setConnected(false); return; }
-      if (!res.ok) throw new Error(data.error ?? "Failed to load playlist");
-      setTracks(data.tracks);
-      setPlaylistName(data.name);
-      localStorage.setItem(KEYS.songsUrl, url);
-      localStorage.setItem(KEYS.songsName, data.name);
-      localStorage.setItem(KEYS.songsTracks, JSON.stringify(data.tracks));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   function unload() {
-    setTracks([]); setPlaylistName(null); setPlaylistUrl("");
-    [KEYS.songsUrl, KEYS.songsName, KEYS.songsTracks].forEach((k) => localStorage.removeItem(k));
+    setTracks([]); setPlaylistName(null);
+    [KEYS.songsName, KEYS.songsTracks].forEach((k) => localStorage.removeItem(k));
   }
 
   if (!mounted) return null;
@@ -187,68 +203,88 @@ function SongsContent() {
         {!connected ? (
           <div className="flex flex-col gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-5">
             <p className="text-white text-sm font-semibold">Connect Spotify</p>
-            <p className="text-zinc-400 text-xs">Sign in with Spotify to load your playlist.</p>
+            <p className="text-zinc-400 text-xs">Sign in to load songs from your playlists.</p>
             {error && <p className="text-red-400 text-xs">{error}</p>}
             <button onClick={handleConnect} className="flex items-center justify-center px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors">
               Connect with Spotify
             </button>
           </div>
-        ) : (
+        ) : tracks.length > 0 ? (
           <>
-            {tracks.length > 0 ? (
-              <div className="flex items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
-                <div className="flex flex-col min-w-0">
-                  <p className="text-white text-sm font-semibold truncate">{playlistName}</p>
-                  <p className="text-zinc-500 text-xs">{tracks.length} songs</p>
-                </div>
-                <button onClick={unload} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-700 border border-red-800 text-red-300 hover:text-white text-xs font-semibold transition-colors">
-                  Unload
-                </button>
+            <div className="flex items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+              <div className="flex flex-col min-w-0">
+                <p className="text-white text-sm font-semibold truncate">{playlistName}</p>
+                <p className="text-zinc-500 text-xs">{tracks.length} songs</p>
               </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Paste Spotify playlist URL…"
-                    value={playlistUrl}
-                    onChange={(e) => setPlaylistUrl(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") loadPlaylist(); }}
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-zinc-500"
-                  />
-                  <button onClick={loadPlaylist} disabled={!playlistUrl.trim() || loading} className="px-4 py-3 rounded-lg bg-green-700 hover:bg-green-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-semibold transition-colors">
-                    {loading ? "…" : "Load"}
-                  </button>
+              <button onClick={unload} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-700 border border-red-800 text-red-300 hover:text-white text-xs font-semibold transition-colors">
+                Change
+              </button>
+            </div>
+
+            {unplayed.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Unplayed — {unplayed.length}</p>
+                <div className="flex flex-col divide-y divide-zinc-800/60">
+                  {unplayed.map((t, i) => <TrackRow key={i} track={t} played={false} />)}
                 </div>
-                {error && <p className="text-red-400 text-sm">{error}</p>}
+              </div>
+            )}
+            {played.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">Played — {played.length}</p>
+                <div className="flex flex-col divide-y divide-zinc-800/60">
+                  {played.map((t, i) => <TrackRow key={i} track={t} played={true} />)}
+                </div>
               </div>
             )}
 
-            {tracks.length === 0 && !loading && !error && (
-              <p className="text-zinc-600 text-sm text-center py-8">Paste a Spotify playlist URL above to load songs</p>
-            )}
+            <button onClick={() => { clearTokens(); setConnected(false); setTracks([]); setPlaylistName(null); }} className="text-zinc-600 hover:text-zinc-400 text-xs text-center transition-colors">
+              Disconnect Spotify
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <p className="text-white text-sm font-semibold">Your Playlists</p>
+                <button onClick={fetchPlaylists} className="text-zinc-500 hover:text-zinc-300 text-xs transition-colors">Refresh</button>
+              </div>
+
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+
+              {loadingPlaylists ? (
+                <p className="text-zinc-500 text-sm text-center py-6">Loading playlists…</p>
+              ) : playlists.length === 0 ? (
+                <p className="text-zinc-600 text-sm text-center py-6">No playlists found</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {playlists.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => loadPlaylist(p.id, p.name)}
+                      disabled={loading}
+                      className="flex items-center gap-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl px-3 py-3 text-left transition-colors disabled:opacity-50"
+                    >
+                      {p.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.image} alt="" width={44} height={44} className="rounded w-11 h-11 object-cover shrink-0" />
+                      ) : (
+                        <div className="w-11 h-11 rounded bg-zinc-800 shrink-0" />
+                      )}
+                      <div className="flex flex-col min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{p.name}</p>
+                        <p className="text-zinc-500 text-xs">{p.total} songs</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <button onClick={() => { clearTokens(); setConnected(false); }} className="text-zinc-600 hover:text-zinc-400 text-xs text-center transition-colors">
               Disconnect Spotify
             </button>
           </>
-        )}
-
-        {unplayed.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Unplayed — {unplayed.length}</p>
-            <div className="flex flex-col divide-y divide-zinc-800/60">
-              {unplayed.map((t, i) => <TrackRow key={i} track={t} played={false} />)}
-            </div>
-          </div>
-        )}
-        {played.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">Played — {played.length}</p>
-            <div className="flex flex-col divide-y divide-zinc-800/60">
-              {played.map((t, i) => <TrackRow key={i} track={t} played={true} />)}
-            </div>
-          </div>
         )}
       </div>
     </main>

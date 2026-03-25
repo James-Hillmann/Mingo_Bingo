@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function extractItems(data: any) {
     for (const item of data?.items ?? []) {
-      const t = item?.track;
+      const t = item?.item ?? item?.track;
       if (!t?.name) continue;
       tracks.push({
         name: t.name,
