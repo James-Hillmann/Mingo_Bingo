@@ -68,6 +68,9 @@ function SongsContent() {
       } else if (searchParams.get("auth_error") === "1") {
         setError("Spotify connection failed. Try again.");
         setConnected(savedConnected === "true");
+      } else if (searchParams.get("disconnected") === "1") {
+        localStorage.removeItem(KEYS.spotifyConnected);
+        setConnected(false);
       } else {
         setConnected(savedConnected === "true");
       }
