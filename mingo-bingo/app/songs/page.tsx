@@ -251,6 +251,14 @@ function SongsContent() {
 
         <h1 className="text-xl font-black tracking-tight text-white uppercase">Songs</h1>
 
+        {/* TEMP DEBUG - remove after fixing */}
+        <div className="text-xs text-zinc-600 bg-zinc-900 rounded p-2 break-all">
+          <p>refresh: {typeof window !== "undefined" ? (localStorage.getItem("sp_refresh") ? "✓ exists" : "✗ missing") : "?"}</p>
+          <p>access: {typeof window !== "undefined" ? (localStorage.getItem("sp_access") ? "✓ exists" : "✗ missing") : "?"}</p>
+          <p>verifier: {typeof window !== "undefined" ? (sessionStorage.getItem("pkce_verifier") ? "✓ exists" : "✗ missing") : "?"}</p>
+          <p>url: {typeof window !== "undefined" ? window.location.search : "?"}</p>
+        </div>
+
         {!connected ? (
           <div className="flex flex-col gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-5">
             <p className="text-white text-sm font-semibold">Connect Spotify</p>
