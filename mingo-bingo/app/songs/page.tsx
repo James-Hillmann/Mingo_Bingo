@@ -166,59 +166,24 @@ function SongsContent() {
     const url = playlistUrl.trim();
     if (!url) return;
 
-    const match = url.match(/playlist\/([A-Za-z0-9]+)/);
-    const playlistId = match?.[1] ?? (/^[A-Za-z0-9]{22}$/.test(url) ? url : null);
-    if (!playlistId) { setError("Invalid playlist URL"); return; }
-
     setLoading(true);
     setError(null);
     try {
       const token = await getToken();
       if (!token) { clearTokens(); setConnected(false); return; }
 
-      const headers = { Authorization: `Bearer ${token}` };
+      const res = await fetch(`/api/spotify?playlist=${encodeURIComponent(url)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.status === 401) { clearTokens(); setConnected(false); return; }
+      if (!res.ok) throw new Error(`${data.error ?? "Failed"} (${res.status})`);
 
-      // Call Spotify directly from the browser — bypasses server IP issues
-      const [metaRes, tracksRes] = await Promise.all([
-        fetch(`https://api.spotify.com/v1/playlists/${playlistId}?fields=name`, { headers }),
-        fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, { headers }),
-      ]);
-
-      if (metaRes.status === 401 || tracksRes.status === 401) { clearTokens(); setConnected(false); return; }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const [meta, firstPage]: [any, any] = await Promise.all([metaRes.json(), tracksRes.json()]);
-      if (!metaRes.ok) throw new Error(`${meta?.error?.message ?? "Failed"} (${metaRes.status})`);
-      if (!tracksRes.ok) throw new Error(`${firstPage?.error?.message ?? "Failed"} (${tracksRes.status})`);
-
-      const fetched: Track[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      function extractItems(data: any) {
-        for (const item of data?.items ?? []) {
-          const t = item?.track;
-          if (!t?.name) continue;
-          fetched.push({
-            name: t.name,
-            artist: t.artists?.map((a: { name: string }) => a.name).join(", ") ?? "Unknown",
-            image: t.album?.images?.[2]?.url ?? t.album?.images?.[0]?.url ?? null,
-          });
-        }
-      }
-      extractItems(firstPage);
-      let next: string | null = firstPage?.next ?? null;
-      while (next) {
-        const r = await fetch(next, { headers });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d: any = await r.json();
-        if (!r.ok) break;
-        extractItems(d);
-        next = d.next ?? null;
-      }
-
-      setTracks(fetched);
-      setPlaylistName(meta.name ?? "Playlist");
+      setTracks(data.tracks);
+      setPlaylistName(data.name);
       localStorage.setItem(KEYS.songsUrl, url);
-      localStorage.setItem(KEYS.songsName, meta.name ?? "Playlist");
-      localStorage.setItem(KEYS.songsTracks, JSON.stringify(fetched));
+      localStorage.setItem(KEYS.songsName, data.name);
+      localStorage.setItem(KEYS.songsTracks, JSON.stringify(data.tracks));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
