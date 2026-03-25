@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   // Use the single playlist endpoint — includes name + first 100 tracks
   // Avoids /playlists/{id}/tracks which Spotify blocks for some app configurations
   const playlistRes = await fetch(
-    `https://api.spotify.com/v1/playlists/${playlistId}?fields=name,tracks.items(track(name,artists(name),album(images))),tracks.next`,
+    `https://api.spotify.com/v1/playlists/${playlistId}`,
     { headers, cache: "no-store" }
   );
 
