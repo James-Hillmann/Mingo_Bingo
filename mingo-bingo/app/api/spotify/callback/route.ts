@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
   // iOS Safari ITP blocks cookies set on cross-site redirect responses.
   // Work around it by returning an HTML page that auto-submits a same-site
   // form POST — Safari treats that as first-party and allows the cookies.
-  const html = `<!DOCTYPE html><html><body>
+  const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#09090b;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#a1a1aa}form{display:none}</style></head><body>
+<p>Connecting to Spotify…</p>
 <form id="f" method="POST" action="/api/spotify/finalize">
   <input type="hidden" name="access" value="${escapeHtml(data.access_token)}">
   <input type="hidden" name="refresh" value="${escapeHtml(data.refresh_token)}">

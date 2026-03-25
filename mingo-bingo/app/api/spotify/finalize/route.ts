@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const secure = process.env.NODE_ENV === "production";
   const opts = { httpOnly: true, sameSite: "lax" as const, path: "/", secure };
 
-  const response = NextResponse.redirect(new URL("/songs?auth=1", req.url));
+  const response = NextResponse.redirect(new URL("/songs?auth=1", req.url), { status: 303 });
   response.cookies.set("sp_access", access, { ...opts, maxAge: expiresIn });
   response.cookies.set("sp_refresh", refresh, { ...opts, maxAge: 60 * 60 * 24 * 60 });
   response.cookies.set("sp_expires", String(Date.now() + expiresIn * 1000), { ...opts, maxAge: expiresIn });
