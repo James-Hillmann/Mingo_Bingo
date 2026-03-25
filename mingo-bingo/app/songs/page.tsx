@@ -298,10 +298,20 @@ function SongsContent() {
 
             {/* TEMP DEBUG */}
             <button onClick={async () => {
+              const raw = localStorage.getItem("sp_access");
+              const refresh = localStorage.getItem("sp_refresh");
+              const expires = localStorage.getItem("sp_expires");
               const token = await getToken();
-              const res = await fetch("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${token}` } });
-              const data = await res.json();
-              alert(JSON.stringify(data, null, 2));
+              const res = token ? await fetch("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${token}` } }) : null;
+              const data = res ? await res.json() : null;
+              alert(
+                `sp_access: ${raw ? raw.slice(0,30)+"..." : "MISSING"}\n` +
+                `sp_refresh: ${refresh ? refresh.slice(0,20)+"..." : "MISSING"}\n` +
+                `sp_expires: ${expires ? new Date(Number(expires)).toISOString() : "MISSING"}\n` +
+                `getToken(): ${token ? token.slice(0,30)+"..." : "NULL"}\n` +
+                `/me status: ${res?.status ?? "not called"}\n` +
+                `/me body: ${JSON.stringify(data)}`
+              );
             }} className="text-zinc-700 text-xs text-center">
               Debug: test token
             </button>
