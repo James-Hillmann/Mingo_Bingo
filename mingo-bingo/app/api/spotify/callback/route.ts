@@ -25,7 +25,8 @@ export async function GET(req: NextRequest) {
   if (!res.ok) return NextResponse.redirect(new URL("/songs?auth_error=1", req.url));
 
   const response = NextResponse.redirect(new URL("/songs?auth=1", req.url));
-  const opts = { httpOnly: true, sameSite: "lax" as const, path: "/" };
+  const secure = process.env.NODE_ENV === "production";
+  const opts = { httpOnly: true, sameSite: "lax" as const, path: "/", secure };
 
   response.cookies.set("sp_access", data.access_token, { ...opts, maxAge: data.expires_in });
   response.cookies.set("sp_refresh", data.refresh_token, { ...opts, maxAge: 60 * 60 * 24 * 60 });
