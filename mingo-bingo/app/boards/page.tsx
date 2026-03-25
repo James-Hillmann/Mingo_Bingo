@@ -1,142 +1,98 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useEffect } from "react";
+
+const MAX_BOARDS = 20;
+const MAX_SUGGESTIONS = 6;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Cell = { text: string };
-type Board = {
-  imageUrl: string;
-  grid: Cell[][];
-  rawText: string;
-  processing: boolean;
-  error?: string;
+type Board = { name: string; grid: Cell[][] };
+type CalledResult = {
+  song: string;
+  hits: { boardIndex: number; positions: string[] }[];
 };
+type ActiveEdit = { bi: number; ri: number; ci: number; query: string };
+type FillTrigger = { bi: number; ri: number; ci: number; value: string; key: number };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const emptyGrid = (): Cell[][] =>
-  Array(5)
+const emptyBoard = (name = ""): Board => ({
+  name,
+  grid: Array(5)
     .fill(null)
-    .map(() => Array(5).fill(null).map(() => ({ text: "" })));
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-/** Convert image to greyscale canvas with boosted contrast for better OCR */
-function preprocessToCanvas(img: HTMLImageElement): HTMLCanvasElement {
-  // Scale up if small — Tesseract works better with larger images
-  const MAX_DIM = 2400;
-  const scale = Math.min(3, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
-  const w = Math.round(img.naturalWidth * scale);
-  const h = Math.round(img.naturalHeight * scale);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d")!;
-  ctx.drawImage(img, 0, 0, w, h);
-
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const d = imgData.data;
-  const contrast = 1.8; // boost contrast so text stands out
-
-  for (let i = 0; i < d.length; i += 4) {
-    const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    const boosted = Math.min(255, Math.max(0, contrast * (gray - 128) + 128));
-    d[i] = d[i + 1] = d[i + 2] = boosted;
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  return canvas;
-}
-
-function getCommonSongs(boards: (Board | null)[]): Set<string> {
-  const ready = boards.filter((b): b is Board => b !== null && !b.processing);
-  if (ready.length < 2) return new Set();
-
-  const sets = ready.map(
-    (b) =>
-      new Set(
-        b.grid
-          .flat()
-          .map((c) => c.text.toLowerCase().trim())
-          .filter(Boolean)
-      )
-  );
-
-  const common = new Set<string>();
-  for (const song of sets[0]) {
-    if (sets.slice(1).every((s) => s.has(song))) common.add(song);
-  }
-  return common;
-}
+    .map(() => Array(5).fill(null).map(() => ({ text: "" }))),
+});
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function UploadZone({
-  onUpload,
-  onManual,
-}: {
-  onUpload: (file: File) => void;
-  onManual: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <label className="border-2 border-dashed border-zinc-700 rounded-xl p-6 flex flex-col items-center gap-2 cursor-pointer hover:border-zinc-500 active:border-zinc-400 transition-colors">
-        <span className="text-3xl">📷</span>
-        <span className="text-zinc-300 text-sm font-medium">Tap to upload board photo</span>
-        <input
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onUpload(f);
-          }}
-        />
-      </label>
-      <button
-        onClick={onManual}
-        className="w-full border border-zinc-700 rounded-xl py-3 text-sm text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
-      >
-        ✏️ Enter manually
-      </button>
-    </div>
-  );
-}
-
 function EditableCell({
   text,
-  className,
+  crossed,
+  highlighted,
   onChange,
+  onNext,
+  onQueryChange,
+  focusTick,
+  fillTrigger,
 }: {
   text: string;
-  className: string;
+  crossed: boolean;
+  highlighted: boolean;
   onChange: (text: string) => void;
+  onNext?: () => void;
+  onQueryChange?: (q: string) => void;
+  focusTick?: number;
+  fillTrigger?: { value: string; key: number } | null;
 }) {
   const [editing, setEditing] = useState(false);
+  const prevTickRef = useState(0);
+  const prevFillKey = useState(0);
+
+  useEffect(() => {
+    if (focusTick && focusTick !== prevTickRef[0]) {
+      prevTickRef[0] = focusTick;
+      setEditing(true);
+    }
+  }, [focusTick]);
+
+  // When a suggestion is tapped from outside, fill and close
+  useEffect(() => {
+    if (fillTrigger && fillTrigger.key !== prevFillKey[0]) {
+      prevFillKey[0] = fillTrigger.key;
+      onChange(fillTrigger.value);
+      setEditing(false);
+      onQueryChange?.(fillTrigger.value);
+    }
+  }, [fillTrigger]);
+
+  let className =
+    "border rounded text-[9px] leading-tight p-1 flex items-center justify-center min-h-13 w-full text-center transition-colors ";
+  if (crossed) {
+    className += "bg-zinc-900 border-zinc-700 text-zinc-600 line-through";
+  } else if (highlighted) {
+    className += "bg-green-700 border-green-500 text-white font-semibold";
+  } else {
+    className += "bg-zinc-800 border-zinc-700 text-zinc-300";
+  }
 
   if (editing) {
     return (
       <input
         autoFocus
         defaultValue={text}
+        onChange={(e) => onQueryChange?.(e.target.value)}
         onBlur={(e) => {
           onChange(e.target.value);
           setEditing(false);
+          onQueryChange?.(e.target.value);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             onChange((e.target as HTMLInputElement).value);
             setEditing(false);
+            onNext?.();
           }
         }}
         className="border border-blue-500 rounded text-[9px] p-1 text-white bg-zinc-900 w-full min-h-13 focus:outline-none text-center"
@@ -145,10 +101,7 @@ function EditableCell({
   }
 
   return (
-    <button
-      onClick={() => setEditing(true)}
-      className={`border rounded text-[9px] leading-tight p-1 flex items-center justify-center min-h-13 w-full text-center transition-colors ${className}`}
-    >
+    <button onClick={() => setEditing(true)} className={className}>
       {text ? text : <span className="text-zinc-600">—</span>}
     </button>
   );
@@ -157,296 +110,338 @@ function EditableCell({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function BoardsPage() {
-  const [boards, setBoards] = useState<(Board | null)[]>([null, null]);
+  const [boards, setBoards] = useState<Board[]>([emptyBoard("Board 1")]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showRaw, setShowRaw] = useState<boolean[]>([false, false]);
+  const [calledSongs, setCalledSongs] = useState<Set<string>>(new Set());
+  const [lastResult, setLastResult] = useState<CalledResult | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [focusTarget, setFocusTarget] = useState<{
+    bi: number; ri: number; ci: number; tick: number;
+  } | null>(null);
+  const [songNames, setSongNames] = useState<string[]>([]);
+  const [activeEdit, setActiveEdit] = useState<ActiveEdit | null>(null);
+  const [fillTrigger, setFillTrigger] = useState<FillTrigger | null>(null);
 
-  const commonSongs = getCommonSongs(boards);
-  const anyReady = boards.some((b) => b && !b.processing);
-
-  function isMatch(text: string): boolean {
-    if (!searchQuery.trim() || !text.trim()) return false;
-    return text.toLowerCase().includes(searchQuery.toLowerCase().trim());
-  }
-
-  function isCommon(text: string): boolean {
-    return !!text.trim() && commonSongs.has(text.toLowerCase().trim());
-  }
-
-  function cellClass(text: string): string {
-    if (isMatch(text)) return "bg-green-700 border-green-500 text-white font-semibold";
-    if (isCommon(text)) return "bg-amber-900/50 border-amber-600 text-amber-200";
-    return "bg-zinc-800 border-zinc-700 text-zinc-300";
-  }
-
-  function initManual(boardIndex: number) {
-    setBoards((prev) => {
-      const next = [...prev];
-      next[boardIndex] = { imageUrl: "", grid: emptyGrid(), rawText: "", processing: false };
-      return next;
-    });
-  }
-
-  async function handleUpload(boardIndex: number, file: File) {
-    const imageUrl = URL.createObjectURL(file);
-    setBoards((prev) => {
-      const next = [...prev];
-      next[boardIndex] = { imageUrl, grid: emptyGrid(), rawText: "", processing: true };
-      return next;
-    });
-
+  useEffect(() => {
     try {
-      const { createWorker, PSM } = await import("tesseract.js");
-
-      const img = await loadImage(imageUrl);
-      const canvas = preprocessToCanvas(img);
-      const scaleX = img.naturalWidth / canvas.width;
-      const scaleY = img.naturalHeight / canvas.height;
-
-      const worker = await createWorker("eng");
-      // PSM 11 = sparse text — finds as much text as possible without assuming layout
-      await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
-
-      const result = await worker.recognize(canvas);
-      await worker.terminate();
-
-      const rawText = result.data.text.trim();
-
-      const grid = emptyGrid();
-      const cellW = canvas.width / 5;
-      const cellH = canvas.height / 5;
-
-      // Flatten all words (no confidence filter — accept everything detected)
-      const words =
-        result.data.blocks?.flatMap((b) =>
-          b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words))
-        ) ?? [];
-
-      for (const word of words) {
-        const text = word.text.trim();
-        if (!text) continue;
-        // bbox is in canvas (preprocessed) coordinates
-        const cx = (word.bbox.x0 + word.bbox.x1) / 2;
-        const cy = (word.bbox.y0 + word.bbox.y1) / 2;
-        const col = Math.min(Math.floor(cx / cellW), 4);
-        const row = Math.min(Math.floor(cy / cellH), 4);
-        const cell = grid[row][col];
-        cell.text = cell.text ? cell.text + " " + text : text;
+      const savedBoards = localStorage.getItem("mingo-boards");
+      if (savedBoards) {
+        const parsed = JSON.parse(savedBoards);
+        const valid = parsed
+          .filter((b: unknown) => b !== null && typeof b === "object" && "grid" in (b as object))
+          .map((b: Board, i: number) => ({ ...b, name: b.name || `Board ${i + 1}` }));
+        setBoards(valid.length > 0 ? valid : [emptyBoard("Board 1")]);
       }
+      const savedSongs = localStorage.getItem("mingo-called-songs");
+      if (savedSongs) setCalledSongs(new Set(JSON.parse(savedSongs)));
 
-      // If the grid is still completely empty but we got raw text,
-      // distribute detected lines evenly across the grid as a fallback
-      const anyFilled = grid.some((r) => r.some((c) => c.text));
-      if (!anyFilled && rawText) {
-        const lines = rawText
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean);
-        let li = 0;
-        for (let r = 0; r < 5 && li < lines.length; r++) {
-          for (let c = 0; c < 5 && li < lines.length; c++) {
-            grid[r][c].text = lines[li++];
-          }
-        }
+      // Load playlist songs for autocomplete
+      const savedTracks = localStorage.getItem("mingo-songs-tracks");
+      if (savedTracks) {
+        const tracks: { name: string }[] = JSON.parse(savedTracks);
+        setSongNames(tracks.map((t) => t.name));
       }
+    } catch {}
+    setMounted(true);
+  }, []);
 
-      setBoards((prev) => {
-        const next = [...prev];
-        next[boardIndex] = { imageUrl, grid, rawText, processing: false };
-        return next;
+  useEffect(() => {
+    if (!mounted) return;
+    localStorage.setItem("mingo-boards", JSON.stringify(boards));
+  }, [boards, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    localStorage.setItem("mingo-called-songs", JSON.stringify([...calledSongs]));
+  }, [calledSongs, mounted]);
+
+  function normalize(s: string) {
+    return s.toLowerCase().trim();
+  }
+
+  function isCalled(text: string) {
+    return !!text.trim() && calledSongs.has(normalize(text));
+  }
+
+  function isMatch(text: string) {
+    if (!searchQuery.trim() || !text.trim()) return false;
+    return normalize(text).includes(normalize(searchQuery));
+  }
+
+  function getBingoStatus(board: Board): "blackout" | "double" | "bingo" | null {
+    const g = board.grid;
+    const hit = (r: number, c: number) => isCalled(g[r][c].text);
+    const lines = [
+      [0,1,2,3,4].map(c => hit(0,c)), [0,1,2,3,4].map(c => hit(1,c)),
+      [0,1,2,3,4].map(c => hit(2,c)), [0,1,2,3,4].map(c => hit(3,c)),
+      [0,1,2,3,4].map(c => hit(4,c)), [0,1,2,3,4].map(r => hit(r,0)),
+      [0,1,2,3,4].map(r => hit(r,1)), [0,1,2,3,4].map(r => hit(r,2)),
+      [0,1,2,3,4].map(r => hit(r,3)), [0,1,2,3,4].map(r => hit(r,4)),
+      [0,1,2,3,4].map(i => hit(i,i)), [0,1,2,3,4].map(i => hit(i,4-i)),
+    ];
+    const completed = lines.filter(l => l.every(Boolean)).length;
+    if (g.flat().every(cell => isCalled(cell.text))) return "blackout";
+    if (completed >= 2) return "double";
+    if (completed >= 1) return "bingo";
+    return null;
+  }
+
+  function getSuggestions(query: string): string[] {
+    if (!query.trim() || songNames.length === 0) return [];
+    const q = normalize(query);
+    const startsWith = songNames.filter(s => normalize(s).startsWith(q));
+    const contains = songNames.filter(s => !normalize(s).startsWith(q) && normalize(s).includes(q));
+    return [...startsWith, ...contains].slice(0, MAX_SUGGESTIONS);
+  }
+
+  function advanceFocus(bi: number, ri: number, ci: number) {
+    const nextCi = ci + 1;
+    const nextRi = ri + (nextCi > 4 ? 1 : 0);
+    const wrappedCi = nextCi > 4 ? 0 : nextCi;
+    if (nextRi > 4) return;
+    setFocusTarget((prev) => ({ bi, ri: nextRi, ci: wrappedCi, tick: (prev?.tick ?? 0) + 1 }));
+  }
+
+  function callSong() {
+    const q = searchQuery.trim();
+    if (!q) return;
+    const matchingTexts = new Set<string>();
+    boards.forEach((board) => {
+      board.grid.flat().forEach((cell) => {
+        if (cell.text.trim() && normalize(cell.text).includes(normalize(q)))
+          matchingTexts.add(normalize(cell.text));
       });
-    } catch (err) {
-      console.error("OCR error:", err);
-      setBoards((prev) => {
-        const next = [...prev];
-        if (next[boardIndex]) {
-          next[boardIndex] = {
-            ...next[boardIndex]!,
-            processing: false,
-            error: "Scan failed — tap any cell to edit it manually.",
-          };
-        }
-        return next;
-      });
-    }
+    });
+    const resolved = matchingTexts.size === 1 ? [...matchingTexts][0] : normalize(q);
+    setCalledSongs((prev) => new Set([...prev, resolved]));
+    const hits: CalledResult["hits"] = [];
+    boards.forEach((board, bi) => {
+      const positions: string[] = [];
+      board.grid.forEach((row, ri) =>
+        row.forEach((cell, ci) => {
+          if (normalize(cell.text) === resolved) positions.push(`Row ${ri + 1}, Col ${ci + 1}`);
+        })
+      );
+      if (positions.length) hits.push({ boardIndex: bi, positions });
+    });
+    setLastResult({ song: resolved, hits });
+    setSearchQuery("");
+  }
+
+  function addBoard() {
+    if (boards.length >= MAX_BOARDS) return;
+    setBoards((prev) => [...prev, emptyBoard(`Board ${prev.length + 1}`)]);
+  }
+
+  function removeBoard(bi: number) {
+    setBoards((prev) => prev.filter((_, i) => i !== bi));
   }
 
   function updateCell(boardIndex: number, row: number, col: number, text: string) {
     setBoards((prev) => {
       const next = [...prev];
-      if (next[boardIndex]) {
-        const grid = next[boardIndex]!.grid.map((r) => r.map((c) => ({ ...c })));
-        grid[row][col].text = text;
-        next[boardIndex] = { ...next[boardIndex]!, grid };
-      }
+      const grid = next[boardIndex].grid.map((r) => r.map((c) => ({ ...c })));
+      grid[row][col].text = text;
+      next[boardIndex] = { ...next[boardIndex], grid };
       return next;
     });
   }
 
-  function toggleRaw(bi: number) {
-    setShowRaw((prev) => prev.map((v, i) => (i === bi ? !v : v)));
+  function renameBoard(boardIndex: number, name: string) {
+    setBoards((prev) => {
+      const next = [...prev];
+      next[boardIndex] = { ...next[boardIndex], name };
+      return next;
+    });
   }
 
-  // Build search result summary
-  const searchResults =
-    searchQuery.trim() && anyReady
-      ? boards.map((board, bi) => {
-          if (!board || board.processing) return null;
-          const hits: string[] = [];
-          board.grid.forEach((row, ri) =>
-            row.forEach((cell, ci) => {
-              if (isMatch(cell.text)) hits.push(`Row ${ri + 1}, Col ${ci + 1}`);
-            })
-          );
-          return { boardIndex: bi, hits };
-        })
-      : null;
+  function handleSuggestionTap(suggestion: string) {
+    if (!activeEdit) return;
+    const { bi, ri, ci } = activeEdit;
+    updateCell(bi, ri, ci, suggestion);
+    setFillTrigger((prev) => ({ bi, ri, ci, value: suggestion, key: (prev?.key ?? 0) + 1 }));
+    setActiveEdit(null);
+    // advance to next cell after a tick
+    setTimeout(() => advanceFocus(bi, ri, ci), 0);
+  }
+
+  const suggestions = activeEdit ? getSuggestions(activeEdit.query) : [];
+  const callSuggestions = searchQuery.trim() ? getSuggestions(searchQuery) : [];
+
+  if (!mounted) return null;
 
   return (
     <main className="min-h-screen bg-zinc-950 flex flex-col items-center px-4 py-8">
       <div className="w-full max-w-sm flex flex-col gap-6">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-zinc-500 hover:text-zinc-300 text-xl leading-none">
-            ←
-          </Link>
-          <h1 className="text-xl font-black tracking-tight text-white uppercase">My Boards</h1>
-        </div>
 
-        {/* Search */}
-        {anyReady && (
-          <div className="flex flex-col gap-1">
+        <h1 className="text-xl font-black tracking-tight text-white uppercase">My Boards</h1>
+
+        {/* Search / call a song */}
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
             <input
               type="text"
-              placeholder="Search for a song…"
+              placeholder="Enter a song name…"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-zinc-500"
+              onChange={(e) => { setSearchQuery(e.target.value); if (lastResult) setLastResult(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") callSong(); }}
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-zinc-500"
             />
-            {searchResults && (
+            <button
+              onClick={callSong}
+              disabled={!searchQuery.trim()}
+              className="px-4 py-3 rounded-lg bg-green-700 hover:bg-green-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-semibold transition-colors"
+            >
+              Call
+            </button>
+          </div>
+
+          {callSuggestions.length > 0 && (
+            <div className="flex flex-col rounded-lg overflow-hidden border border-zinc-700">
+              {callSuggestions.map((s) => (
+                <button
+                  key={s}
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => { setSearchQuery(s); if (lastResult) setLastResult(null); }}
+                  className="text-left px-3 py-2 text-sm text-zinc-200 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-b border-zinc-700 last:border-0 transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {searchQuery.trim() && (() => {
+            const liveHits = boards.flatMap((board, bi) => {
+              const positions: string[] = [];
+              board.grid.forEach((row, ri) =>
+                row.forEach((cell, ci) => {
+                  if (isMatch(cell.text)) positions.push(`Row ${ri + 1}, Col ${ci + 1}`);
+                })
+              );
+              return positions.length ? [{ boardIndex: bi, positions }] : [];
+            });
+            return (
               <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-1">
-                {searchResults.map((r) => {
-                  if (!r) return null;
-                  if (r.hits.length === 0)
-                    return (
-                      <p key={r.boardIndex} className="text-zinc-500 text-xs">
-                        Board {r.boardIndex + 1}: not found
-                      </p>
-                    );
-                  return (
-                    <p key={r.boardIndex} className="text-green-400 text-xs">
-                      Board {r.boardIndex + 1}: {r.hits.join(" · ")}
-                    </p>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Common songs banner */}
-        {commonSongs.size > 0 && !searchQuery && (
-          <div className="bg-amber-950/30 border border-amber-800/60 rounded-lg p-3">
-            <p className="text-amber-400 text-xs font-semibold uppercase tracking-wider mb-1">
-              On both boards ({commonSongs.size})
-            </p>
-            <p className="text-amber-300/80 text-xs leading-relaxed">
-              {[...commonSongs].join(" · ")}
-            </p>
-          </div>
-        )}
-
-        {/* Legend */}
-        {anyReady && (
-          <div className="flex gap-4 text-xs text-zinc-500 justify-center">
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-amber-900/50 border border-amber-600 inline-block" />
-              Both boards
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-green-700 border border-green-500 inline-block" />
-              Search match
-            </span>
-          </div>
-        )}
-
-        {/* Board 1 & 2 */}
-        {([0, 1] as const).map((bi) => (
-          <div key={bi} className="flex flex-col gap-3">
-            <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">
-              Board {bi + 1}
-            </h2>
-
-            {!boards[bi] ? (
-              <UploadZone onUpload={(f) => handleUpload(bi, f)} onManual={() => initManual(bi)} />
-            ) : boards[bi]!.processing ? (
-              <div className="border border-zinc-700 rounded-xl p-6 text-center">
-                <p className="text-zinc-400 text-sm animate-pulse">Scanning board…</p>
-                <p className="text-zinc-600 text-xs mt-1">This may take a minute</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {boards[bi]!.error && (
-                  <p className="text-amber-500 text-xs">{boards[bi]!.error}</p>
-                )}
-
-                {/* 5×5 grid */}
-                <div className="grid grid-cols-5 gap-0.5">
-                  {boards[bi]!.grid.map((row, ri) =>
-                    row.map((cell, ci) => (
-                      <EditableCell
-                        key={`${ri}-${ci}`}
-                        text={cell.text}
-                        className={cellClass(cell.text)}
-                        onChange={(text) => updateCell(bi, ri, ci, text)}
-                      />
-                    ))
-                  )}
-                </div>
-
-                {/* Raw OCR text toggle (debug) */}
-                {boards[bi]!.rawText && (
-                  <div>
-                    <button
-                      onClick={() => toggleRaw(bi)}
-                      className="text-xs text-zinc-600 hover:text-zinc-400 w-full text-center"
-                    >
-                      {showRaw[bi] ? "Hide" : "Show"} raw scan text
-                    </button>
-                    {showRaw[bi] && (
-                      <pre className="mt-1 bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[10px] text-zinc-400 whitespace-pre-wrap overflow-auto max-h-40">
-                        {boards[bi]!.rawText}
-                      </pre>
-                    )}
-                  </div>
-                )}
-
-                {!boards[bi]!.rawText && !boards[bi]!.error && (
-                  <p className="text-zinc-600 text-xs text-center">
-                    No text detected — try a clearer photo, or tap cells to enter manually
+                {liveHits.length === 0 ? (
+                  <p className="text-zinc-500 text-xs">Not found on any board</p>
+                ) : liveHits.map((h) => (
+                  <p key={h.boardIndex} className="text-green-400 text-xs">
+                    {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
                   </p>
-                )}
+                ))}
+              </div>
+            );
+          })()}
 
-                <label className="text-xs text-zinc-600 hover:text-zinc-400 text-center cursor-pointer mt-1">
-                  Re-upload image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleUpload(bi, f);
-                    }}
+          {!searchQuery.trim() && lastResult && (
+            <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-1">
+              <p className="text-zinc-400 text-xs font-semibold uppercase tracking-wider mb-0.5">
+                "{lastResult.song}"
+              </p>
+              {lastResult.hits.length === 0 ? (
+                <p className="text-zinc-500 text-xs">Not found on any board</p>
+              ) : lastResult.hits.map((h) => (
+                <p key={h.boardIndex} className="text-green-400 text-xs">
+                  {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {calledSongs.size > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {[...calledSongs].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setCalledSongs((prev) => { const next = new Set(prev); next.delete(s); return next; })}
+                  className="text-[10px] bg-zinc-800 border border-zinc-700 text-zinc-500 rounded px-2 py-0.5 line-through hover:border-red-800 hover:text-red-500 transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Boards */}
+        {boards.map((board, bi) => (
+          <div key={bi} className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                value={board.name}
+                onChange={(e) => renameBoard(bi, e.target.value)}
+                className="text-sm font-bold text-zinc-400 uppercase tracking-wider bg-transparent focus:outline-none focus:text-white placeholder-zinc-600 flex-1 min-w-0"
+              />
+              {(() => {
+                const status = getBingoStatus(board);
+                if (!status) return null;
+                const styles = { blackout: "bg-yellow-400 text-black", double: "bg-purple-600 text-white", bingo: "bg-green-600 text-white" };
+                const labels = { blackout: "BLACKOUT", double: "DOUBLE BINGO", bingo: "BINGO" };
+                return <span className={`text-[10px] font-black px-2 py-0.5 rounded tracking-wider shrink-0 ${styles[status]}`}>{labels[status]}</span>;
+              })()}
+              {boards.length > 1 && (
+                <button onClick={() => removeBoard(bi)} className="text-zinc-600 hover:text-red-400 text-lg leading-none transition-colors px-1" aria-label="Remove board">×</button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-5 gap-0.5">
+              {board.grid.map((row, ri) =>
+                row.map((cell, ci) => (
+                  <EditableCell
+                    key={`${ri}-${ci}`}
+                    text={cell.text}
+                    crossed={isCalled(cell.text)}
+                    highlighted={!isCalled(cell.text) && isMatch(cell.text)}
+                    onChange={(text) => updateCell(bi, ri, ci, text)}
+                    onNext={() => advanceFocus(bi, ri, ci)}
+                    onQueryChange={(q) => setActiveEdit(q.trim() ? { bi, ri, ci, query: q } : null)}
+                    focusTick={focusTarget?.bi === bi && focusTarget?.ri === ri && focusTarget?.ci === ci ? focusTarget.tick : 0}
+                    fillTrigger={fillTrigger?.bi === bi && fillTrigger?.ri === ri && fillTrigger?.ci === ci ? fillTrigger : null}
                   />
-                </label>
+                ))
+              )}
+            </div>
+
+            {/* Autocomplete suggestions for this board */}
+            {activeEdit?.bi === bi && suggestions.length > 0 && (
+              <div className="flex flex-col rounded-lg overflow-hidden border border-zinc-700">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onPointerDown={(e) => e.preventDefault()}
+                    onClick={() => handleSuggestionTap(s)}
+                    className="text-left px-3 py-2 text-sm text-zinc-200 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-b border-zinc-700 last:border-0 transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
               </div>
             )}
           </div>
         ))}
 
-        <p className="text-zinc-700 text-xs text-center pb-4">
-          Tap any cell to edit it manually
-        </p>
+        {boards.length < MAX_BOARDS && (
+          <button onClick={addBoard} className="w-full border-2 border-dashed border-zinc-800 hover:border-zinc-600 rounded-xl py-4 text-sm text-zinc-600 hover:text-zinc-400 transition-colors">
+            + Add Board
+          </button>
+        )}
+
+        <p className="text-zinc-700 text-xs text-center">Tap any cell to edit it manually</p>
+
+        <button
+          onClick={() => {
+            setBoards([emptyBoard("Board 1")]);
+            setCalledSongs(new Set());
+            setLastResult(null);
+            setSearchQuery("");
+            localStorage.removeItem("mingo-boards");
+            localStorage.removeItem("mingo-called-songs");
+          }}
+          className="text-xs text-zinc-700 hover:text-red-500 transition-colors mx-auto pb-4"
+        >
+          Reset everything
+        </button>
       </div>
     </main>
   );
