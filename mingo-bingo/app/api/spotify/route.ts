@@ -28,52 +28,33 @@ export async function GET(req: NextRequest) {
 
   const headers = { Authorization: `Bearer ${token}` };
 
-  const [metaRes, tracksRes] = await Promise.all([
-    fetch(`https://api.spotify.com/v1/playlists/${playlistId}?fields=name`, { headers, cache: "no-store" }),
-    fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, { headers, cache: "no-store" }),
-  ]);
+  // Use the single playlist endpoint — includes name + first 100 tracks
+  // Avoids /playlists/{id}/tracks which Spotify blocks for some app configurations
+  const playlistRes = await fetch(
+    `https://api.spotify.com/v1/playlists/${playlistId}?fields=name,tracks.items(track(name,artists(name),album(images))),tracks.next`,
+    { headers, cache: "no-store" }
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [metaData, firstPage]: [any, any] = await Promise.all([metaRes.json(), tracksRes.json()]);
+  const playlistData: any = await playlistRes.json();
 
-  if (!metaRes.ok) {
+  if (!playlistRes.ok) {
     return NextResponse.json(
-      { error: `meta ${metaRes.status}: ${JSON.stringify(metaData)}` },
-      { status: metaRes.status === 401 ? 401 : 500 }
-    );
-  }
-  if (!tracksRes.ok) {
-    return NextResponse.json(
-      { error: `tracks ${tracksRes.status}: ${JSON.stringify(firstPage)}` },
-      { status: tracksRes.status === 401 ? 401 : 500 }
+      { error: `${playlistData?.error?.message ?? "Failed"} (${playlistRes.status})` },
+      { status: playlistRes.status === 401 ? 401 : 500 }
     );
   }
 
   const tracks: Track[] = [];
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function extractItems(data: any) {
-    for (const item of data?.items ?? []) {
-      const t = item?.track;
-      if (!t?.name) continue;
-      tracks.push({
-        name: t.name,
-        artist: t.artists?.map((a: { name: string }) => a.name).join(", ") ?? "Unknown",
-        image: t.album?.images?.[2]?.url ?? t.album?.images?.[0]?.url ?? null,
-      });
-    }
+  for (const item of playlistData?.tracks?.items ?? []) {
+    const t = item?.track;
+    if (!t?.name) continue;
+    tracks.push({
+      name: t.name,
+      artist: t.artists?.map((a: { name: string }) => a.name).join(", ") ?? "Unknown",
+      image: t.album?.images?.[2]?.url ?? t.album?.images?.[0]?.url ?? null,
+    });
   }
 
-  extractItems(firstPage);
-  let nextUrl: string | null = firstPage?.next ?? null;
-  while (nextUrl) {
-    const res = await fetch(nextUrl, { headers, cache: "no-store" });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await res.json();
-    if (!res.ok) break;
-    extractItems(data);
-    nextUrl = data.next ?? null;
-  }
-
-  return NextResponse.json({ name: metaData.name ?? "Playlist", tracks });
+  return NextResponse.json({ name: playlistData.name ?? "Playlist", tracks });
 }
