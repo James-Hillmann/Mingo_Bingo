@@ -38,13 +38,13 @@ export async function GET(req: NextRequest) {
 
   if (!metaRes.ok) {
     return NextResponse.json(
-      { error: metaData?.error?.message ?? "Failed to fetch playlist", status: metaRes.status },
+      { error: `meta ${metaRes.status}: ${JSON.stringify(metaData)}` },
       { status: metaRes.status === 401 ? 401 : 500 }
     );
   }
   if (!tracksRes.ok) {
     return NextResponse.json(
-      { error: firstPage?.error?.message ?? "Failed to fetch tracks", status: tracksRes.status },
+      { error: `tracks ${tracksRes.status}: ${JSON.stringify(firstPage)}` },
       { status: tracksRes.status === 401 ? 401 : 500 }
     );
   }
