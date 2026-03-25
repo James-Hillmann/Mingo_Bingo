@@ -99,7 +99,8 @@ export async function GET(req: NextRequest) {
 
     const response = NextResponse.json({ name, tracks });
     if (newCookies) {
-      const opts = { httpOnly: true, sameSite: "lax" as const, path: "/" };
+      const secure = process.env.NODE_ENV === "production";
+      const opts = { httpOnly: true, sameSite: "lax" as const, path: "/", secure };
       const maxAge = Math.floor((newCookies.expires - Date.now()) / 1000);
       response.cookies.set("sp_access", newCookies.access, { ...opts, maxAge });
       response.cookies.set("sp_expires", String(newCookies.expires), { ...opts, maxAge });
