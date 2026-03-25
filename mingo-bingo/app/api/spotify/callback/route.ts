@@ -8,6 +8,5 @@ export function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/songs?auth_error=1", req.url));
   }
 
-  // Pass code to songs page — client completes PKCE exchange there
   return NextResponse.redirect(new URL(`/songs?code=${encodeURIComponent(code)}`, req.url));
 }

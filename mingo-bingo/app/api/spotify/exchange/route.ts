@@ -20,9 +20,11 @@ export async function POST(req: NextRequest) {
     }).toString(),
   });
 
-  if (!res.ok) return NextResponse.json({ error: "Token exchange failed" }, { status: 401 });
-
   const data = await res.json();
+  if (!res.ok) {
+    return NextResponse.json({ error: data.error_description ?? "Exchange failed" }, { status: 401 });
+  }
+
   return NextResponse.json({
     access_token: data.access_token,
     refresh_token: data.refresh_token,

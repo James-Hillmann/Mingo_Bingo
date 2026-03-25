@@ -5,58 +5,58 @@ import { useSearchParams } from "next/navigation";
 import type { Track } from "@/app/api/spotify/route";
 import { KEYS } from "@/lib/keys";
 
-// ── PKCE helpers ──────────────────────────────────────────────────────────────
+// ── PKCE ─────────────────────────────────────────────────────────────────────
 
-function base64urlEncode(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+function b64url(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
-function generateCodeVerifier(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return base64urlEncode(array);
+function makeVerifier(): string {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return b64url(arr);
 }
 
-async function generateCodeChallenge(verifier: string): Promise<string> {
-  const data = new TextEncoder().encode(verifier);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return base64urlEncode(new Uint8Array(digest));
+async function makeChallenge(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return b64url(digest);
 }
 
-// ── Token helpers ─────────────────────────────────────────────────────────────
+// ── Token storage ─────────────────────────────────────────────────────────────
+
+function saveTokens(access: string, refresh: string, expiresIn: number) {
+  localStorage.setItem(KEYS.spAccess, access);
+  localStorage.setItem(KEYS.spRefresh, refresh);
+  localStorage.setItem(KEYS.spExpires, String(Date.now() + expiresIn * 1000));
+}
 
 function clearTokens() {
-  localStorage.removeItem(KEYS.spAccess);
-  localStorage.removeItem(KEYS.spRefresh);
-  localStorage.removeItem(KEYS.spExpires);
-  localStorage.removeItem(KEYS.spotifyConnected);
+  [KEYS.spAccess, KEYS.spRefresh, KEYS.spExpires, KEYS.spotifyConnected].forEach((k) =>
+    localStorage.removeItem(k)
+  );
 }
 
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const token = localStorage.getItem(KEYS.spAccess);
-    const expires = Number(localStorage.getItem(KEYS.spExpires) ?? "0");
-    const refresh = localStorage.getItem(KEYS.spRefresh);
+async function getToken(): Promise<string | null> {
+  const access = localStorage.getItem(KEYS.spAccess);
+  const expires = Number(localStorage.getItem(KEYS.spExpires) ?? "0");
+  const refresh = localStorage.getItem(KEYS.spRefresh);
+  if (!refresh) return null;
 
-    if (!refresh) return null;
-    if (token && Date.now() < expires - 60_000) return token;
+  // Return existing token if not expired
+  if (access && Date.now() < expires - 60_000) return access;
 
-    const res = await fetch("/api/spotify/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refresh }),
-    });
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const newExpires = Date.now() + data.expires_in * 1000;
-    localStorage.setItem(KEYS.spAccess, data.access_token);
-    localStorage.setItem(KEYS.spExpires, String(newExpires));
-    return data.access_token;
-  } catch {
-    return null;
-  }
+  // Refresh
+  const res = await fetch("/api/spotify/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refresh }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  localStorage.setItem(KEYS.spAccess, data.access_token);
+  localStorage.setItem(KEYS.spExpires, String(Date.now() + data.expires_in * 1000));
+  return data.access_token;
 }
 
 // ── Components ────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ function TrackRow({ track, played }: { track: Track; played: boolean }) {
       )}
       <p className={`text-sm leading-snug min-w-0 ${played ? "line-through text-zinc-500" : "text-zinc-200"}`}>
         {track.name}
-        <span className="text-zinc-500"> &mdash; </span>
+        <span className="text-zinc-500"> — </span>
         <span className="text-zinc-400">{track.artist}</span>
       </p>
     </div>
@@ -80,11 +80,7 @@ function TrackRow({ track, played }: { track: Track; played: boolean }) {
 }
 
 export default function SongsPage() {
-  return (
-    <Suspense>
-      <SongsContent />
-    </Suspense>
-  );
+  return <Suspense><SongsContent /></Suspense>;
 }
 
 function SongsContent() {
@@ -97,100 +93,73 @@ function SongsContent() {
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const exchangeAttempted = useRef(false);
+  const codeHandled = useRef(false);
 
   useEffect(() => {
     const code = searchParams.get("code");
+    const authError = searchParams.get("auth_error");
 
-    // PKCE: complete the exchange if we got a code back from Spotify
-    if (code && !exchangeAttempted.current) {
-      exchangeAttempted.current = true;
-      handleCodeExchange(code);
+    if (code && !codeHandled.current) {
+      codeHandled.current = true;
+      handleExchange(code);
       return;
     }
 
-    // Normal init
     try {
-      const savedUrl = localStorage.getItem(KEYS.songsUrl);
-      const savedName = localStorage.getItem(KEYS.songsName);
-      const savedTracks = localStorage.getItem(KEYS.songsTracks);
-      const savedCalled = localStorage.getItem(KEYS.calledSongs);
-
-      if (savedUrl) setPlaylistUrl(savedUrl);
-      if (savedName) setPlaylistName(savedName);
-      if (savedTracks) setTracks(JSON.parse(savedTracks));
-      if (savedCalled) setCalledSongs(new Set(JSON.parse(savedCalled)));
-
-      if (searchParams.get("disconnected") === "1") {
-        clearTokens();
-        setConnected(false);
-      } else if (searchParams.get("auth_error") === "1") {
-        setError("Spotify connection failed. Try again.");
-        setConnected(!!localStorage.getItem(KEYS.spRefresh));
-      } else {
-        setConnected(!!localStorage.getItem(KEYS.spRefresh));
-      }
+      if (searchParams.get("disconnected") === "1") clearTokens();
+      const url = localStorage.getItem(KEYS.songsUrl);
+      const name = localStorage.getItem(KEYS.songsName);
+      const saved = localStorage.getItem(KEYS.songsTracks);
+      const called = localStorage.getItem(KEYS.calledSongs);
+      if (url) setPlaylistUrl(url);
+      if (name) setPlaylistName(name);
+      if (saved) setTracks(JSON.parse(saved));
+      if (called) setCalledSongs(new Set(JSON.parse(called)));
+      if (authError) setError("Spotify connection failed. Try again.");
+      setConnected(!!localStorage.getItem(KEYS.spRefresh));
     } catch {}
     setMounted(true);
-  }, [searchParams]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  async function handleCodeExchange(code: string) {
+  async function handleExchange(code: string) {
     const verifier = sessionStorage.getItem("pkce_verifier");
     sessionStorage.removeItem("pkce_verifier");
-
     try {
-      if (!verifier) throw new Error("Missing verifier");
-
+      if (!verifier) throw new Error("Missing verifier — please try connecting again.");
       const res = await fetch("/api/spotify/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, verifier }),
       });
-      if (!res.ok) throw new Error("Exchange failed");
-
       const data = await res.json();
-      const expires = Date.now() + data.expires_in * 1000;
-
-      localStorage.setItem(KEYS.spAccess, data.access_token);
-      localStorage.setItem(KEYS.spRefresh, data.refresh_token);
-      localStorage.setItem(KEYS.spExpires, String(expires));
-      localStorage.setItem(KEYS.spotifyConnected, "true");
-
+      if (!res.ok) throw new Error(data.error ?? "Exchange failed");
+      saveTokens(data.access_token, data.refresh_token, data.expires_in);
       window.history.replaceState({}, "", "/songs");
       setConnected(true);
-    } catch {
-      setError("Login failed. Please try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Login failed");
     }
-
-    // Load any saved playlist state
+    // Load saved state
     try {
-      const savedUrl = localStorage.getItem(KEYS.songsUrl);
-      const savedName = localStorage.getItem(KEYS.songsName);
-      const savedTracks = localStorage.getItem(KEYS.songsTracks);
-      const savedCalled = localStorage.getItem(KEYS.calledSongs);
-      if (savedUrl) setPlaylistUrl(savedUrl);
-      if (savedName) setPlaylistName(savedName);
-      if (savedTracks) setTracks(JSON.parse(savedTracks));
-      if (savedCalled) setCalledSongs(new Set(JSON.parse(savedCalled)));
+      const url = localStorage.getItem(KEYS.songsUrl);
+      const name = localStorage.getItem(KEYS.songsName);
+      const saved = localStorage.getItem(KEYS.songsTracks);
+      const called = localStorage.getItem(KEYS.calledSongs);
+      if (url) setPlaylistUrl(url);
+      if (name) setPlaylistName(name);
+      if (saved) setTracks(JSON.parse(saved));
+      if (called) setCalledSongs(new Set(JSON.parse(called)));
     } catch {}
-
     setMounted(true);
   }
 
   async function handleConnect() {
-    const verifier = generateCodeVerifier();
-    const challenge = await generateCodeChallenge(verifier);
+    setError(null);
+    const verifier = makeVerifier();
+    const challenge = await makeChallenge(verifier);
     sessionStorage.setItem("pkce_verifier", verifier);
     window.location.href = `/api/spotify/login?code_challenge=${encodeURIComponent(challenge)}`;
-  }
-
-  function handleDisconnect() {
-    clearTokens();
-    setConnected(false);
-  }
-
-  function isPlayed(track: Track) {
-    return calledSongs.has(track.name.toLowerCase().trim());
   }
 
   async function loadPlaylist() {
@@ -199,65 +168,43 @@ function SongsContent() {
     setLoading(true);
     setError(null);
     try {
-      const token = await getAccessToken();
-      if (!token) {
-        clearTokens();
-        setConnected(false);
-        return;
-      }
+      const token = await getToken();
+      if (!token) { clearTokens(); setConnected(false); return; }
 
       const res = await fetch(`/api/spotify?playlist=${encodeURIComponent(url)}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
 
-      if (res.status === 401) {
-        clearTokens();
-        setConnected(false);
-        return;
-      }
-      if (!res.ok) throw new Error(data.error ?? "Failed to load playlist");
+      if (res.status === 401) { clearTokens(); setConnected(false); return; }
+      if (!res.ok) throw new Error(`${data.error ?? "Failed"} (Spotify ${data.status ?? res.status})`);
 
       setTracks(data.tracks);
       setPlaylistName(data.name);
       localStorage.setItem(KEYS.songsUrl, url);
       localStorage.setItem(KEYS.songsName, data.name);
       localStorage.setItem(KEYS.songsTracks, JSON.stringify(data.tracks));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
   }
 
-  function unloadPlaylist() {
-    setTracks([]);
-    setPlaylistName(null);
-    setPlaylistUrl("");
-    localStorage.removeItem(KEYS.songsUrl);
-    localStorage.removeItem(KEYS.songsName);
-    localStorage.removeItem(KEYS.songsTracks);
+  function unload() {
+    setTracks([]); setPlaylistName(null); setPlaylistUrl("");
+    [KEYS.songsUrl, KEYS.songsName, KEYS.songsTracks].forEach((k) => localStorage.removeItem(k));
   }
 
   if (!mounted) return null;
 
-  const unplayed = tracks.filter((t) => !isPlayed(t));
-  const played = tracks.filter((t) => isPlayed(t));
-  const isLoaded = tracks.length > 0;
+  const unplayed = tracks.filter((t) => !calledSongs.has(t.name.toLowerCase().trim()));
+  const played = tracks.filter((t) => calledSongs.has(t.name.toLowerCase().trim()));
 
   return (
     <main className="min-h-screen bg-zinc-950 flex flex-col items-center px-4 py-8">
       <div className="w-full max-w-sm flex flex-col gap-6">
-
         <h1 className="text-xl font-black tracking-tight text-white uppercase">Songs</h1>
-
-        {/* TEMP DEBUG - remove after fixing */}
-        <div className="text-xs text-zinc-600 bg-zinc-900 rounded p-2 break-all">
-          <p>refresh: {typeof window !== "undefined" ? (localStorage.getItem("sp_refresh") ? "✓ exists" : "✗ missing") : "?"}</p>
-          <p>access: {typeof window !== "undefined" ? (localStorage.getItem("sp_access") ? "✓ exists" : "✗ missing") : "?"}</p>
-          <p>verifier: {typeof window !== "undefined" ? (sessionStorage.getItem("pkce_verifier") ? "✓ exists" : "✗ missing") : "?"}</p>
-          <p>url: {typeof window !== "undefined" ? window.location.search : "?"}</p>
-        </div>
 
         {!connected ? (
           <div className="flex flex-col gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-5">
@@ -266,23 +213,20 @@ function SongsContent() {
             {error && <p className="text-red-400 text-xs">{error}</p>}
             <button
               onClick={handleConnect}
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors"
+              className="flex items-center justify-center px-4 py-3 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors"
             >
               Connect with Spotify
             </button>
           </div>
         ) : (
           <>
-            {isLoaded ? (
+            {tracks.length > 0 ? (
               <div className="flex items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
                 <div className="flex flex-col min-w-0">
                   <p className="text-white text-sm font-semibold truncate">{playlistName}</p>
                   <p className="text-zinc-500 text-xs">{tracks.length} songs</p>
                 </div>
-                <button
-                  onClick={unloadPlaylist}
-                  className="shrink-0 px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-700 border border-red-800 text-red-300 hover:text-white text-xs font-semibold transition-colors"
-                >
+                <button onClick={unload} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-700 border border-red-800 text-red-300 hover:text-white text-xs font-semibold transition-colors">
                   Unload
                 </button>
               </div>
@@ -309,16 +253,11 @@ function SongsContent() {
               </div>
             )}
 
-            {!isLoaded && !loading && !error && (
-              <p className="text-zinc-600 text-sm text-center py-8">
-                Paste a Spotify playlist URL above to load songs
-              </p>
+            {tracks.length === 0 && !loading && !error && (
+              <p className="text-zinc-600 text-sm text-center py-8">Paste a Spotify playlist URL above to load songs</p>
             )}
 
-            <button
-              onClick={handleDisconnect}
-              className="text-zinc-600 hover:text-zinc-400 text-xs text-center transition-colors"
-            >
+            <button onClick={() => { clearTokens(); setConnected(false); }} className="text-zinc-600 hover:text-zinc-400 text-xs text-center transition-colors">
               Disconnect Spotify
             </button>
           </>
@@ -326,26 +265,17 @@ function SongsContent() {
 
         {unplayed.length > 0 && (
           <div className="flex flex-col gap-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Unplayed — {unplayed.length}
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Unplayed — {unplayed.length}</p>
             <div className="flex flex-col divide-y divide-zinc-800/60">
-              {unplayed.map((track, i) => (
-                <TrackRow key={i} track={track} played={false} />
-              ))}
+              {unplayed.map((t, i) => <TrackRow key={i} track={t} played={false} />)}
             </div>
           </div>
         )}
-
         {played.length > 0 && (
           <div className="flex flex-col gap-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">
-              Played — {played.length}
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">Played — {played.length}</p>
             <div className="flex flex-col divide-y divide-zinc-800/60">
-              {played.map((track, i) => (
-                <TrackRow key={i} track={track} played={true} />
-              ))}
+              {played.map((t, i) => <TrackRow key={i} track={t} played={true} />)}
             </div>
           </div>
         )}
