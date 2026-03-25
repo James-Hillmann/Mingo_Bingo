@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
   const [metaRes, tracksRes] = await Promise.all([
     fetch(`https://api.spotify.com/v1/playlists/${playlistId}?fields=name`, { headers, cache: "no-store" }),
-    fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, { headers, cache: "no-store" }),
+    fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items?limit=100`, { headers, cache: "no-store" }),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,14 +64,14 @@ export async function GET(req: NextRequest) {
   }
 
   extractItems(firstPage);
-  let nextUrl: string | null = firstPage?.next ?? null;
+  let nextUrl: string | null = firstPage?.next?.replace("/tracks?", "/items?") ?? null;
   while (nextUrl) {
     const res = await fetch(nextUrl, { headers, cache: "no-store" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
     if (!res.ok) break;
     extractItems(data);
-    nextUrl = data.next ?? null;
+    nextUrl = data.next?.replace("/tracks?", "/items?") ?? null;
   }
 
   return NextResponse.json({ name: metaData.name ?? "Playlist", tracks });
