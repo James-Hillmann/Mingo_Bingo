@@ -20,23 +20,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid playlist URL or ID" }, { status: 400 });
   }
 
-  // Get an app-level token via Client Credentials — works for public playlists without user auth
-  const ccRes = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64")}`,
-    },
-    body: new URLSearchParams({ grant_type: "client_credentials" }).toString(),
-  });
-
-  if (!ccRes.ok) {
-    return NextResponse.json({ error: "Failed to get app token" }, { status: 500 });
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "NOT_AUTHENTICATED" }, { status: 401 });
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ccData: any = await ccRes.json();
-  const headers = { Authorization: `Bearer ${ccData.access_token}` };
+  const headers = { Authorization: authHeader };
 
   const [metaRes, tracksRes] = await Promise.all([
     fetch(`https://api.spotify.com/v1/playlists/${playlistId}?fields=name`, { headers, cache: "no-store" }),
