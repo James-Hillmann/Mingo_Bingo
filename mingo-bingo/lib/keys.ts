@@ -5,4 +5,7 @@ export const KEYS = {
   songsName: "mingo-songs-name",
   songsTracks: "mingo-songs-tracks",
   spotifyConnected: "mingo-spotify-connected",
+  spAccess: "sp_access",
+  spRefresh: "sp_refresh",
+  spExpires: "sp_expires",
 } as const;

@@ -37,6 +37,32 @@ export default function SongsPage() {
   );
 }
 
+async function getAccessToken(): Promise<string | null> {
+  try {
+    const token = localStorage.getItem(KEYS.spAccess);
+    const expires = Number(localStorage.getItem(KEYS.spExpires) ?? "0");
+    const refresh = localStorage.getItem(KEYS.spRefresh);
+
+    if (!refresh) return null;
+    if (token && Date.now() < expires - 60_000) return token;
+
+    const res = await fetch("/api/spotify/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const newExpires = Date.now() + data.expires_in * 1000;
+    localStorage.setItem(KEYS.spAccess, data.access_token);
+    localStorage.setItem(KEYS.spExpires, String(newExpires));
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
 function SongsContent() {
   const searchParams = useSearchParams();
   const [playlistUrl, setPlaylistUrl] = useState("");
@@ -54,25 +80,23 @@ function SongsContent() {
       const savedName = localStorage.getItem(KEYS.songsName);
       const savedTracks = localStorage.getItem(KEYS.songsTracks);
       const savedCalled = localStorage.getItem(KEYS.calledSongs);
-      const savedConnected = localStorage.getItem(KEYS.spotifyConnected);
 
       if (savedUrl) setPlaylistUrl(savedUrl);
       if (savedName) setPlaylistName(savedName);
       if (savedTracks) setTracks(JSON.parse(savedTracks));
       if (savedCalled) setCalledSongs(new Set(JSON.parse(savedCalled)));
 
-      // OAuth callback sets ?auth=1 on redirect
-      if (searchParams.get("auth") === "1") {
-        localStorage.setItem(KEYS.spotifyConnected, "true");
-        setConnected(true);
+      if (searchParams.get("disconnected") === "1") {
+        localStorage.removeItem(KEYS.spotifyConnected);
+        localStorage.removeItem(KEYS.spAccess);
+        localStorage.removeItem(KEYS.spRefresh);
+        localStorage.removeItem(KEYS.spExpires);
+        setConnected(false);
       } else if (searchParams.get("auth_error") === "1") {
         setError("Spotify connection failed. Try again.");
-        setConnected(savedConnected === "true");
-      } else if (searchParams.get("disconnected") === "1") {
-        localStorage.removeItem(KEYS.spotifyConnected);
-        setConnected(false);
+        setConnected(!!localStorage.getItem(KEYS.spRefresh));
       } else {
-        setConnected(savedConnected === "true");
+        setConnected(!!localStorage.getItem(KEYS.spRefresh));
       }
     } catch {}
     setMounted(true);
@@ -88,9 +112,24 @@ function SongsContent() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/spotify?playlist=${encodeURIComponent(url)}`);
+      const token = await getAccessToken();
+      if (!token) {
+        localStorage.removeItem(KEYS.spAccess);
+        localStorage.removeItem(KEYS.spRefresh);
+        localStorage.removeItem(KEYS.spExpires);
+        localStorage.removeItem(KEYS.spotifyConnected);
+        setConnected(false);
+        return;
+      }
+
+      const res = await fetch(`/api/spotify?playlist=${encodeURIComponent(url)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       if (res.status === 401) {
+        localStorage.removeItem(KEYS.spAccess);
+        localStorage.removeItem(KEYS.spRefresh);
+        localStorage.removeItem(KEYS.spExpires);
         localStorage.removeItem(KEYS.spotifyConnected);
         setConnected(false);
         return;
@@ -115,6 +154,14 @@ function SongsContent() {
     localStorage.removeItem(KEYS.songsUrl);
     localStorage.removeItem(KEYS.songsName);
     localStorage.removeItem(KEYS.songsTracks);
+  }
+
+  function handleDisconnect() {
+    localStorage.removeItem(KEYS.spotifyConnected);
+    localStorage.removeItem(KEYS.spAccess);
+    localStorage.removeItem(KEYS.spRefresh);
+    localStorage.removeItem(KEYS.spExpires);
+    setConnected(false);
   }
 
   if (!mounted) return null;
@@ -187,13 +234,13 @@ function SongsContent() {
               </p>
             )}
 
-            {/* Disconnect link */}
-            <a
-              href="/api/spotify/disconnect"
+            {/* Disconnect button */}
+            <button
+              onClick={handleDisconnect}
               className="text-zinc-600 hover:text-zinc-400 text-xs text-center transition-colors"
             >
               Disconnect Spotify
-            </a>
+            </button>
           </>
         )}
 

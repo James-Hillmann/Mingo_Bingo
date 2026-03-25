@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-function escapeHtml(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   if (!code) return NextResponse.redirect(new URL("/songs?auth_error=1", req.url));
@@ -28,17 +24,21 @@ export async function GET(req: NextRequest) {
   const data = await res.json();
   if (!res.ok) return NextResponse.redirect(new URL("/songs?auth_error=1", req.url));
 
-  // iOS Safari ITP blocks cookies set on cross-site redirect responses.
-  // Work around it by returning an HTML page that auto-submits a same-site
-  // form POST — Safari treats that as first-party and allows the cookies.
-  const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#09090b;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#a1a1aa}form{display:none}</style></head><body>
-<p>Connecting to Spotify…</p>
-<form id="f" method="POST" action="/api/spotify/finalize">
-  <input type="hidden" name="access" value="${escapeHtml(data.access_token)}">
-  <input type="hidden" name="refresh" value="${escapeHtml(data.refresh_token)}">
-  <input type="hidden" name="expires_in" value="${Number(data.expires_in)}">
-</form>
-<script>document.getElementById('f').submit();</script>
+  const expires = Date.now() + data.expires_in * 1000;
+
+  // Store tokens in localStorage via JS — avoids all iOS cookie restrictions
+  const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;background:#09090b;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#a1a1aa}</style>
+</head><body><p>Connecting to Spotify\u2026</p>
+<script>
+try {
+  localStorage.setItem('sp_access', ${JSON.stringify(data.access_token)});
+  localStorage.setItem('sp_refresh', ${JSON.stringify(data.refresh_token)});
+  localStorage.setItem('sp_expires', ${JSON.stringify(String(expires))});
+  localStorage.setItem('mingo-spotify-connected', 'true');
+} catch(e) {}
+window.location.replace('/songs?auth=1');
+</script>
 </body></html>`;
 
   return new Response(html, { headers: { "Content-Type": "text/html" } });

@@ -6,31 +6,6 @@ export type Track = {
   image: string | null;
 };
 
-async function getValidToken(req: NextRequest): Promise<{ token: string; newCookies?: { access: string; expires: number } }> {
-  const token = req.cookies.get("sp_access")?.value;
-  const refreshToken = req.cookies.get("sp_refresh")?.value;
-  const expiresAt = Number(req.cookies.get("sp_expires")?.value ?? "0");
-
-  if (token && Date.now() < expiresAt - 60_000) return { token };
-  if (!refreshToken) throw new Error("NOT_AUTHENTICATED");
-
-  const res = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64")}`,
-    },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }).toString(),
-  });
-
-  if (!res.ok) throw new Error("NOT_AUTHENTICATED");
-  const data = await res.json();
-  return {
-    token: data.access_token,
-    newCookies: { access: data.access_token, expires: Date.now() + data.expires_in * 1000 },
-  };
-}
-
 async function fetchPlaylist(playlistId: string, token: string): Promise<{ name: string; tracks: Track[] }> {
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -93,24 +68,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid playlist URL or ID" }, { status: 400 });
   }
 
-  try {
-    const { token, newCookies } = await getValidToken(req);
-    const { name, tracks } = await fetchPlaylist(playlistId, token);
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "NOT_AUTHENTICATED" }, { status: 401 });
+  }
+  const token = authHeader.slice(7);
 
-    const response = NextResponse.json({ name, tracks });
-    if (newCookies) {
-      const secure = process.env.NODE_ENV === "production";
-      const opts = { httpOnly: true, sameSite: "lax" as const, path: "/", secure };
-      const maxAge = Math.floor((newCookies.expires - Date.now()) / 1000);
-      response.cookies.set("sp_access", newCookies.access, { ...opts, maxAge });
-      response.cookies.set("sp_expires", String(newCookies.expires), { ...opts, maxAge });
-    }
-    return response;
+  try {
+    const { name, tracks } = await fetchPlaylist(playlistId, token);
+    return NextResponse.json({ name, tracks });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    if (message === "NOT_AUTHENTICATED") {
-      return NextResponse.json({ error: "NOT_AUTHENTICATED" }, { status: 401 });
-    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
