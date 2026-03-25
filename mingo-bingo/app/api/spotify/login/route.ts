@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export function GET() {
   const clientId = process.env.SPOTIFY_CLIENT_ID!;
-  const redirectUri = "https://mingo-bingo.vercel.app/api/spotify/callback";
+  const redirectUri = process.env.SPOTIFY_REDIRECT_URI ?? "https://mingo-bingo.vercel.app/api/spotify/callback";
   const scope = "playlist-read-private playlist-read-collaborative";
 
   const url = new URL("https://accounts.spotify.com/authorize");

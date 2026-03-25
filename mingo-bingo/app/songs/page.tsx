@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Track } from "@/app/api/spotify/route";
+import { KEYS } from "@/lib/keys";
 
 function TrackRow({ track, played }: { track: Track; played: boolean }) {
   return (
@@ -49,11 +50,11 @@ function SongsContent() {
 
   useEffect(() => {
     try {
-      const savedUrl = localStorage.getItem("mingo-songs-url");
-      const savedName = localStorage.getItem("mingo-songs-name");
-      const savedTracks = localStorage.getItem("mingo-songs-tracks");
-      const savedCalled = localStorage.getItem("mingo-called-songs");
-      const savedConnected = localStorage.getItem("mingo-spotify-connected");
+      const savedUrl = localStorage.getItem(KEYS.songsUrl);
+      const savedName = localStorage.getItem(KEYS.songsName);
+      const savedTracks = localStorage.getItem(KEYS.songsTracks);
+      const savedCalled = localStorage.getItem(KEYS.calledSongs);
+      const savedConnected = localStorage.getItem(KEYS.spotifyConnected);
 
       if (savedUrl) setPlaylistUrl(savedUrl);
       if (savedName) setPlaylistName(savedName);
@@ -62,7 +63,7 @@ function SongsContent() {
 
       // OAuth callback sets ?auth=1 on redirect
       if (searchParams.get("auth") === "1") {
-        localStorage.setItem("mingo-spotify-connected", "true");
+        localStorage.setItem(KEYS.spotifyConnected, "true");
         setConnected(true);
       } else if (searchParams.get("auth_error") === "1") {
         setError("Spotify connection failed. Try again.");
@@ -87,16 +88,16 @@ function SongsContent() {
       const res = await fetch(`/api/spotify?playlist=${encodeURIComponent(url)}`);
       const data = await res.json();
       if (res.status === 401) {
-        localStorage.removeItem("mingo-spotify-connected");
+        localStorage.removeItem(KEYS.spotifyConnected);
         setConnected(false);
         return;
       }
       if (!res.ok) throw new Error(data.error ?? "Failed to load playlist");
       setTracks(data.tracks);
       setPlaylistName(data.name);
-      localStorage.setItem("mingo-songs-url", url);
-      localStorage.setItem("mingo-songs-name", data.name);
-      localStorage.setItem("mingo-songs-tracks", JSON.stringify(data.tracks));
+      localStorage.setItem(KEYS.songsUrl, url);
+      localStorage.setItem(KEYS.songsName, data.name);
+      localStorage.setItem(KEYS.songsTracks, JSON.stringify(data.tracks));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -108,9 +109,9 @@ function SongsContent() {
     setTracks([]);
     setPlaylistName(null);
     setPlaylistUrl("");
-    localStorage.removeItem("mingo-songs-url");
-    localStorage.removeItem("mingo-songs-name");
-    localStorage.removeItem("mingo-songs-tracks");
+    localStorage.removeItem(KEYS.songsUrl);
+    localStorage.removeItem(KEYS.songsName);
+    localStorage.removeItem(KEYS.songsTracks);
   }
 
   if (!mounted) return null;

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { KEYS } from "@/lib/keys";
 
 const MAX_BOARDS = 20;
 const MAX_SUGGESTIONS = 6;
@@ -17,6 +18,10 @@ type ActiveEdit = { bi: number; ri: number; ci: number; query: string };
 type FillTrigger = { bi: number; ri: number; ci: number; value: string; key: number };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function normalize(s: string) {
+  return s.toLowerCase().trim();
+}
 
 const emptyBoard = (name = ""): Board => ({
   name,
@@ -47,20 +52,20 @@ function EditableCell({
   fillTrigger?: { value: string; key: number } | null;
 }) {
   const [editing, setEditing] = useState(false);
-  const prevTickRef = useState(0);
-  const prevFillKey = useState(0);
+  const prevTickRef = useRef(0);
+  const prevFillKey = useRef(0);
 
   useEffect(() => {
-    if (focusTick && focusTick !== prevTickRef[0]) {
-      prevTickRef[0] = focusTick;
+    if (focusTick && focusTick !== prevTickRef.current) {
+      prevTickRef.current = focusTick;
       setEditing(true);
     }
   }, [focusTick]);
 
   // When a suggestion is tapped from outside, fill and close
   useEffect(() => {
-    if (fillTrigger && fillTrigger.key !== prevFillKey[0]) {
-      prevFillKey[0] = fillTrigger.key;
+    if (fillTrigger && fillTrigger.key !== prevFillKey.current) {
+      prevFillKey.current = fillTrigger.key;
       onChange(fillTrigger.value);
       setEditing(false);
       onQueryChange?.(fillTrigger.value);
@@ -124,7 +129,7 @@ export default function BoardsPage() {
 
   useEffect(() => {
     try {
-      const savedBoards = localStorage.getItem("mingo-boards");
+      const savedBoards = localStorage.getItem(KEYS.boards);
       if (savedBoards) {
         const parsed = JSON.parse(savedBoards);
         const valid = parsed
@@ -132,11 +137,11 @@ export default function BoardsPage() {
           .map((b: Board, i: number) => ({ ...b, name: b.name || `Board ${i + 1}` }));
         setBoards(valid.length > 0 ? valid : [emptyBoard("Board 1")]);
       }
-      const savedSongs = localStorage.getItem("mingo-called-songs");
+      const savedSongs = localStorage.getItem(KEYS.calledSongs);
       if (savedSongs) setCalledSongs(new Set(JSON.parse(savedSongs)));
 
       // Load playlist songs for autocomplete
-      const savedTracks = localStorage.getItem("mingo-songs-tracks");
+      const savedTracks = localStorage.getItem(KEYS.songsTracks);
       if (savedTracks) {
         const tracks: { name: string }[] = JSON.parse(savedTracks);
         setSongNames(tracks.map((t) => t.name));
@@ -147,17 +152,13 @@ export default function BoardsPage() {
 
   useEffect(() => {
     if (!mounted) return;
-    localStorage.setItem("mingo-boards", JSON.stringify(boards));
+    localStorage.setItem(KEYS.boards, JSON.stringify(boards));
   }, [boards, mounted]);
 
   useEffect(() => {
     if (!mounted) return;
-    localStorage.setItem("mingo-called-songs", JSON.stringify([...calledSongs]));
+    localStorage.setItem(KEYS.calledSongs, JSON.stringify([...calledSongs]));
   }, [calledSongs, mounted]);
-
-  function normalize(s: string) {
-    return s.toLowerCase().trim();
-  }
 
   function isCalled(text: string) {
     return !!text.trim() && calledSongs.has(normalize(text));
@@ -267,6 +268,17 @@ export default function BoardsPage() {
 
   const suggestions = activeEdit ? getSuggestions(activeEdit.query) : [];
   const callSuggestions = searchQuery.trim() ? getSuggestions(searchQuery) : [];
+  const liveHits = searchQuery.trim()
+    ? boards.flatMap((board, bi) => {
+        const positions: string[] = [];
+        board.grid.forEach((row, ri) =>
+          row.forEach((cell, ci) => {
+            if (isMatch(cell.text)) positions.push(`Row ${ri + 1}, Col ${ci + 1}`);
+          })
+        );
+        return positions.length ? [{ boardIndex: bi, positions }] : [];
+      })
+    : null;
 
   if (!mounted) return null;
 
@@ -311,28 +323,17 @@ export default function BoardsPage() {
             </div>
           )}
 
-          {searchQuery.trim() && (() => {
-            const liveHits = boards.flatMap((board, bi) => {
-              const positions: string[] = [];
-              board.grid.forEach((row, ri) =>
-                row.forEach((cell, ci) => {
-                  if (isMatch(cell.text)) positions.push(`Row ${ri + 1}, Col ${ci + 1}`);
-                })
-              );
-              return positions.length ? [{ boardIndex: bi, positions }] : [];
-            });
-            return (
-              <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-1">
-                {liveHits.length === 0 ? (
-                  <p className="text-zinc-500 text-xs">Not found on any board</p>
-                ) : liveHits.map((h) => (
-                  <p key={h.boardIndex} className="text-green-400 text-xs">
-                    {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
-                  </p>
-                ))}
-              </div>
-            );
-          })()}
+          {liveHits && (
+            <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-1">
+              {liveHits.length === 0 ? (
+                <p className="text-zinc-500 text-xs">Not found on any board</p>
+              ) : liveHits.map((h) => (
+                <p key={h.boardIndex} className="text-green-400 text-xs">
+                  {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
+                </p>
+              ))}
+            </div>
+          )}
 
           {!searchQuery.trim() && lastResult && (
             <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-1">
@@ -435,8 +436,8 @@ export default function BoardsPage() {
             setCalledSongs(new Set());
             setLastResult(null);
             setSearchQuery("");
-            localStorage.removeItem("mingo-boards");
-            localStorage.removeItem("mingo-called-songs");
+            localStorage.removeItem(KEYS.boards);
+            localStorage.removeItem(KEYS.calledSongs);
           }}
           className="text-xs text-zinc-700 hover:text-red-500 transition-colors mx-auto pb-4"
         >

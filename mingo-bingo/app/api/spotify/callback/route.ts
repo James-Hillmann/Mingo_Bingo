@@ -6,7 +6,7 @@ export async function GET(req: NextRequest) {
 
   const clientId = process.env.SPOTIFY_CLIENT_ID!;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET!;
-  const redirectUri = "https://mingo-bingo.vercel.app/api/spotify/callback";
+  const redirectUri = process.env.SPOTIFY_REDIRECT_URI ?? "https://mingo-bingo.vercel.app/api/spotify/callback";
 
   const res = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
