@@ -295,6 +295,16 @@ function SongsContent() {
             <button onClick={() => { clearTokens(); setConnected(false); }} className="text-zinc-600 hover:text-zinc-400 text-xs text-center transition-colors">
               Disconnect Spotify
             </button>
+
+            {/* TEMP DEBUG */}
+            <button onClick={async () => {
+              const token = await getToken();
+              const res = await fetch("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${token}` } });
+              const data = await res.json();
+              alert(JSON.stringify(data, null, 2));
+            }} className="text-zinc-700 text-xs text-center">
+              Debug: test token
+            </button>
           </>
         )}
 
