@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { KEYS } from "@/lib/keys";
-import { loadCount, saveCount } from "@/lib/storage";
+import { saveCount, resetCount } from "@/lib/storage";
 
 const MAX_BOARDS = 20;
 const MAX_SUGGESTIONS = 6;
@@ -161,6 +161,7 @@ export default function BoardsPage() {
   useEffect(() => {
     if (!mounted) return;
     localStorage.setItem(KEYS.calledSongs, JSON.stringify([...calledSongs]));
+    saveCount(calledSongs.size);
   }, [calledSongs, mounted]);
 
   useEffect(() => {
@@ -258,7 +259,6 @@ export default function BoardsPage() {
     });
     setLastResult({ song: resolved, hits });
     setSearchQuery("");
-    saveCount(Math.min(75, loadCount() + 1));
   }
 
   function addBoard() {
@@ -513,6 +513,7 @@ export default function BoardsPage() {
             setSearchQuery("");
             localStorage.removeItem(KEYS.boards);
             localStorage.removeItem(KEYS.calledSongs);
+            resetCount();
           }}
           className="text-xs text-zinc-700 hover:text-red-500 transition-colors mx-auto pb-4"
         >
