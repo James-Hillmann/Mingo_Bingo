@@ -296,10 +296,10 @@ export default function BoardsPage() {
     setTimeout(() => advanceFocus(bi, ri, ci), 0);
   }
 
-  const suggestions = activeEdit ? (() => {
-    const usedOnBoard = new Set(boards[activeEdit.bi]?.grid.flat().map(c => normalize(c.text)).filter(Boolean));
-    return getSuggestions(activeEdit.query).filter(s => !usedOnBoard.has(normalize(s)));
-  })() : [];
+  const usedOnActiveBoard = activeEdit
+    ? new Set(boards[activeEdit.bi]?.grid.flat().map(c => normalize(c.text)).filter(Boolean))
+    : new Set<string>();
+  const suggestions = activeEdit ? getSuggestions(activeEdit.query) : [];
   const callSuggestions = searchQuery.trim()
     ? getSuggestions(searchQuery).sort((a, b) => {
         const aCalled = calledSongs.has(normalize(a)) ? 1 : 0;
@@ -468,6 +468,24 @@ export default function BoardsPage() {
               )}
             </div>
 
+            {/* Inline suggestions — desktop only */}
+            {activeEdit?.bi === bi && suggestions.length > 0 && (
+              <div className="hidden md:flex flex-col rounded-lg overflow-hidden border border-zinc-700">
+                {suggestions.map((s) => {
+                  const used = usedOnActiveBoard.has(normalize(s));
+                  return (
+                    <button
+                      key={s}
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={() => handleSuggestionTap(s)}
+                      className={`text-left px-3 py-2 text-sm bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-b border-zinc-700 last:border-0 transition-colors ${used ? "line-through text-red-500" : "text-zinc-200"}`}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ))}
 
@@ -496,17 +514,20 @@ export default function BoardsPage() {
 
       {/* Fixed suggestion bar — sits above keyboard on mobile */}
       {activeEdit && suggestions.length > 0 && (
-        <div className="fixed left-0 right-0 z-50 bg-zinc-900 border-t border-zinc-700 flex overflow-x-auto" style={{ bottom: keyboardOffset }}>
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              onPointerDown={(e) => e.preventDefault()}
-              onClick={() => handleSuggestionTap(s)}
-              className="shrink-0 px-4 py-3 text-sm text-zinc-200 hover:bg-zinc-700 active:bg-zinc-600 border-r border-zinc-700 last:border-0 transition-colors whitespace-nowrap"
-            >
-              {s}
-            </button>
-          ))}
+        <div className="md:hidden fixed left-0 right-0 z-50 bg-zinc-900 border-t border-zinc-700 flex overflow-x-auto" style={{ bottom: keyboardOffset }}>
+          {suggestions.map((s) => {
+            const used = usedOnActiveBoard.has(normalize(s));
+            return (
+              <button
+                key={s}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => handleSuggestionTap(s)}
+                className={`shrink-0 px-4 py-3 text-sm hover:bg-zinc-700 active:bg-zinc-600 border-r border-zinc-700 last:border-0 transition-colors whitespace-nowrap ${used ? "line-through text-red-500" : "text-zinc-200"}`}
+              >
+                {s}
+              </button>
+            );
+          })}
         </div>
       )}
     </main>
