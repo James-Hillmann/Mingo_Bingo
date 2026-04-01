@@ -11,9 +11,10 @@ const MAX_SUGGESTIONS = 6;
 
 type Cell = { text: string };
 type Board = { name: string; grid: Cell[][] };
+type HitCoord = { row: number; col: number };
 type CalledResult = {
   song: string;
-  hits: { boardIndex: number; positions: string[]; status: "blackout" | "double" | "bingo" | null }[];
+  hits: { boardIndex: number; coords: HitCoord[]; status: "blackout" | "double" | "bingo" | null }[];
 };
 type ActiveEdit = { bi: number; ri: number; ci: number; query: string };
 type FillTrigger = { bi: number; ri: number; ci: number; value: string; key: number };
@@ -32,6 +33,28 @@ const emptyBoard = (name = ""): Board => ({
 });
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function MiniBingoBoard({ board, hitCoords, calledSongs }: {
+  board: Board;
+  hitCoords: HitCoord[];
+  calledSongs: Set<string>;
+}) {
+  const hitSet = new Set(hitCoords.map(c => `${c.row},${c.col}`));
+  return (
+    <div className="inline-grid grid-cols-5 gap-px shrink-0">
+      {board.grid.map((row, ri) =>
+        row.map((cell, ci) => {
+          const isHit = hitSet.has(`${ri},${ci}`);
+          const called = !!cell.text.trim() && calledSongs.has(normalize(cell.text));
+          let bg = "bg-zinc-600";
+          if (isHit) bg = "bg-green-500";
+          else if (called) bg = "bg-zinc-950";
+          return <div key={`${ri}-${ci}`} className={`w-2 h-2 ${bg} rounded-[1px]`} />;
+        })
+      )}
+    </div>
+  );
+}
 
 function EditableCell({
   text,
@@ -129,6 +152,9 @@ export default function BoardsPage() {
   const [activeEdit, setActiveEdit] = useState<ActiveEdit | null>(null);
   const [fillTrigger, setFillTrigger] = useState<FillTrigger | null>(null);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [lookupState, setLookupState] = useState<"idle" | "loading" | "done">("idle");
+  const [lookupResult, setLookupResult] = useState<string | null>(null);
+  const [spotifyConnected, setSpotifyConnected] = useState(false);
 
   useEffect(() => {
     try {
@@ -149,6 +175,7 @@ export default function BoardsPage() {
         const tracks: { name: string }[] = JSON.parse(savedTracks);
         setSongNames(tracks.map((t) => t.name));
       }
+      setSpotifyConnected(!!localStorage.getItem(KEYS.spRefresh));
     } catch {}
     setMounted(true);
   }, []);
@@ -216,6 +243,27 @@ export default function BoardsPage() {
     setFocusTarget((prev) => ({ bi, ri: nextRi, ci: wrappedCi, tick: (prev?.tick ?? 0) + 1 }));
   }
 
+  async function identifyShow(songName: string) {
+    const q = songName.trim();
+    if (!q) return;
+    const allShows = [...new Set(boards.flatMap((b) => b.grid.flat().map((c) => c.text.trim()).filter(Boolean)))];
+    if (allShows.length === 0) return;
+    setLookupState("loading");
+    setLookupResult(null);
+    try {
+      const res = await fetch("/api/identify-show", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songName: q, shows: allShows }),
+      });
+      const data = await res.json();
+      setLookupResult(data.show ?? null);
+      setLookupState("done");
+    } catch {
+      setLookupState("idle");
+    }
+  }
+
   function callSong() {
     const q = searchQuery.trim();
     if (!q) return;
@@ -249,13 +297,13 @@ export default function BoardsPage() {
     };
     const hits: CalledResult["hits"] = [];
     boards.forEach((board, bi) => {
-      const positions: string[] = [];
+      const coords: HitCoord[] = [];
       board.grid.forEach((row, ri) =>
         row.forEach((cell, ci) => {
-          if (normalize(cell.text) === resolved) positions.push(`Row ${ri + 1}, Col ${ci + 1}`);
+          if (normalize(cell.text) === resolved) coords.push({ row: ri, col: ci });
         })
       );
-      if (positions.length) hits.push({ boardIndex: bi, positions, status: getBingoStatusWith(board, newCalledSongs) });
+      if (coords.length) hits.push({ boardIndex: bi, coords, status: getBingoStatusWith(board, newCalledSongs) });
     });
     setLastResult({ song: resolved, hits });
     setSearchQuery("");
@@ -315,17 +363,6 @@ export default function BoardsPage() {
         return aCalled - bCalled;
       })
     : [];
-  const liveHits = searchQuery.trim()
-    ? boards.flatMap((board, bi) => {
-        const positions: string[] = [];
-        board.grid.forEach((row, ri) =>
-          row.forEach((cell, ci) => {
-            if (isMatch(cell.text)) positions.push(`Row ${ri + 1}, Col ${ci + 1}`);
-          })
-        );
-        return positions.length ? [{ boardIndex: bi, positions }] : [];
-      })
-    : null;
 
   if (!mounted) return null;
 
@@ -349,7 +386,7 @@ export default function BoardsPage() {
               type="text"
               placeholder="Enter a song name…"
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); if (lastResult) setLastResult(null); }}
+              onChange={(e) => { setSearchQuery(e.target.value); if (lastResult) setLastResult(null); setLookupState("idle"); setLookupResult(null); }}
               onKeyDown={(e) => { if (e.key === "Enter") callSong(); }}
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-zinc-500"
             />
@@ -380,35 +417,47 @@ export default function BoardsPage() {
             </div>
           )}
 
-          {liveHits && (
-            <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-1">
-              {liveHits.length === 0 ? (
-                <p className="text-zinc-500 text-xs">Not found on any board</p>
-              ) : liveHits.map((h) => (
-                <p key={h.boardIndex} className="text-green-400 text-xs">
-                  {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
-                </p>
-              ))}
-            </div>
-          )}
-
-          {!searchQuery.trim() && lastResult && (
-            <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-1">
-              <p className="text-zinc-400 text-xs font-semibold uppercase tracking-wider mb-0.5">
+          {lastResult && (
+            <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 flex flex-col gap-2">
+              <p className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">
                 "{lastResult.song}"
               </p>
               {lastResult.hits.length === 0 ? (
                 <p className="text-zinc-500 text-xs">Not found on any board</p>
               ) : lastResult.hits.map((h) => (
                 <div key={h.boardIndex} className="flex items-center gap-2 flex-wrap">
-                  <p className="text-green-400 text-xs">
-                    {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
-                  </p>
+                  <MiniBingoBoard board={boards[h.boardIndex]} hitCoords={h.coords} calledSongs={calledSongs} />
+                  <p className="text-green-400 text-xs">{boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}</p>
                   {h.status === "blackout" && <span className="text-[10px] font-bold uppercase tracking-wide bg-yellow-500 text-black rounded px-1.5 py-0.5">Blackout!</span>}
                   {h.status === "double" && <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-600 text-white rounded px-1.5 py-0.5">Double Bingo!</span>}
                   {h.status === "bingo" && <span className="text-[10px] font-bold uppercase tracking-wide bg-green-600 text-white rounded px-1.5 py-0.5">Bingo!</span>}
                 </div>
               ))}
+              {lastResult.hits.length === 0 && lookupState === "idle" && spotifyConnected && (
+                <button
+                  onClick={() => identifyShow(lastResult.song)}
+                  className="self-start text-xs bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-zinc-300 rounded-lg px-3 py-1.5 transition-colors"
+                >
+                  Which show is this?
+                </button>
+              )}
+              {lookupState === "loading" && (
+                <p className="text-zinc-500 text-xs">Asking Claude...</p>
+              )}
+              {lookupState === "done" && lookupResult && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-zinc-300 text-xs">Sounds like <span className="text-white font-semibold">{lookupResult}</span></span>
+                  <button
+                    onClick={() => { setSearchQuery(lookupResult); setLookupState("idle"); setLookupResult(null); setLastResult(null); }}
+                    className="text-xs bg-green-700 hover:bg-green-600 text-white rounded-lg px-3 py-1 font-semibold transition-colors"
+                  >
+                    Call it
+                  </button>
+                </div>
+              )}
+              {lookupState === "done" && !lookupResult && (
+                <p className="text-zinc-500 text-xs">Claude couldn't match it to a show on the board</p>
+              )}
             </div>
           )}
 
