@@ -118,6 +118,7 @@ export default function BoardsPage() {
   const [boards, setBoards] = useState<Board[]>([emptyBoard("Board 1")]);
   const [searchQuery, setSearchQuery] = useState("");
   const [calledSongs, setCalledSongs] = useState<Set<string>>(new Set());
+  const [showAllCalled, setShowAllCalled] = useState(false);
   const [lastResult, setLastResult] = useState<CalledResult | null>(null);
   const [mounted, setMounted] = useState(false);
   const [focusTarget, setFocusTarget] = useState<{
@@ -190,8 +191,8 @@ export default function BoardsPage() {
   function getSuggestions(query: string): string[] {
     if (!query.trim() || songNames.length === 0) return [];
     const q = normalize(query);
-    const startsWith = songNames.filter(s => normalize(s).startsWith(q));
-    const contains = songNames.filter(s => !normalize(s).startsWith(q) && normalize(s).includes(q));
+    const startsWith = songNames.filter(s => normalize(s).startsWith(q)).sort((a, b) => a.length - b.length);
+    const contains = songNames.filter(s => !normalize(s).startsWith(q) && normalize(s).includes(q)).sort((a, b) => a.length - b.length);
     return [...startsWith, ...contains].slice(0, MAX_SUGGESTIONS);
   }
 
@@ -310,16 +311,19 @@ export default function BoardsPage() {
 
           {callSuggestions.length > 0 && (
             <div className="flex flex-col rounded-lg overflow-hidden border border-zinc-700">
-              {callSuggestions.map((s) => (
-                <button
-                  key={s}
-                  onPointerDown={(e) => e.preventDefault()}
-                  onClick={() => { setSearchQuery(s); if (lastResult) setLastResult(null); }}
-                  className="text-left px-3 py-2 text-sm text-zinc-200 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-b border-zinc-700 last:border-0 transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
+              {callSuggestions.map((s) => {
+                const alreadyCalled = calledSongs.has(normalize(s));
+                return (
+                  <button
+                    key={s}
+                    onPointerDown={(e) => e.preventDefault()}
+                    onClick={() => { setSearchQuery(s); if (lastResult) setLastResult(null); }}
+                    className={`text-left px-3 py-2 text-sm bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-b border-zinc-700 last:border-0 transition-colors ${alreadyCalled ? "line-through text-red-500" : "text-zinc-200"}`}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -351,16 +355,26 @@ export default function BoardsPage() {
           )}
 
           {calledSongs.size > 0 && (
-            <div className="flex flex-wrap gap-1 pt-1">
-              {[...calledSongs].reverse().map((s) => (
+            <div className="pt-1">
+              <div className={`flex flex-wrap gap-1 ${!showAllCalled ? "max-h-18 overflow-hidden" : ""}`}>
+                {[...calledSongs].reverse().map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setCalledSongs((prev) => { const next = new Set(prev); next.delete(s); return next; })}
+                    className="text-[10px] bg-zinc-800 border border-zinc-700 text-zinc-500 rounded px-2 py-0.5 line-through hover:border-red-800 hover:text-red-500 transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              {calledSongs.size > 10 && (
                 <button
-                  key={s}
-                  onClick={() => setCalledSongs((prev) => { const next = new Set(prev); next.delete(s); return next; })}
-                  className="text-[10px] bg-zinc-800 border border-zinc-700 text-zinc-500 rounded px-2 py-0.5 line-through hover:border-red-800 hover:text-red-500 transition-colors"
+                  onClick={() => setShowAllCalled((v) => !v)}
+                  className="text-[10px] text-zinc-600 hover:text-zinc-400 mt-1 transition-colors"
                 >
-                  {s}
+                  {showAllCalled ? "show less" : `view more (${calledSongs.size})`}
                 </button>
-              ))}
+              )}
             </div>
           )}
         </div>
