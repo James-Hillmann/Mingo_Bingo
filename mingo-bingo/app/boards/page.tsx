@@ -154,6 +154,7 @@ export default function BoardsPage() {
   const [lookupState, setLookupState] = useState<"idle" | "loading" | "done">("idle");
   const [lookupResult, setLookupResult] = useState<string | null>(null);
   const [spotifyConnected, setSpotifyConnected] = useState(false);
+  const boardRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     try {
@@ -434,7 +435,9 @@ export default function BoardsPage() {
                   return (
                     <div key={bi} className="flex flex-col items-center gap-1">
                       <p className="text-zinc-500 text-[10px]">{board.name || `Board ${bi + 1}`}</p>
-                      <MiniBingoBoard board={board} hitCoords={hit?.coords ?? []} calledSongs={calledSongs} />
+                      <button onClick={() => boardRefs.current[bi]?.scrollIntoView({ behavior: "smooth", block: "center" })}>
+                        <MiniBingoBoard board={board} hitCoords={hit?.coords ?? []} calledSongs={calledSongs} />
+                      </button>
                       {status === "blackout" && <span className="text-[10px] font-bold uppercase tracking-wide bg-yellow-500 text-black rounded px-1.5 py-0.5">Blackout!</span>}
                       {status === "double" && <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-600 text-white rounded px-1.5 py-0.5">Double Bingo!</span>}
                       {status === "bingo" && <span className="text-[10px] font-bold uppercase tracking-wide bg-green-600 text-white rounded px-1.5 py-0.5">Bingo!</span>}
@@ -497,7 +500,7 @@ export default function BoardsPage() {
 
         {/* Boards */}
         {boards.map((board, bi) => (
-          <div key={bi} className="flex flex-col gap-2">
+          <div key={bi} ref={(el) => { boardRefs.current[bi] = el; }} className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <input
                 value={board.name}
