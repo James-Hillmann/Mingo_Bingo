@@ -127,6 +127,7 @@ export default function BoardsPage() {
   const [songNames, setSongNames] = useState<string[]>([]);
   const [activeEdit, setActiveEdit] = useState<ActiveEdit | null>(null);
   const [fillTrigger, setFillTrigger] = useState<FillTrigger | null>(null);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   useEffect(() => {
     try {
@@ -160,6 +161,15 @@ export default function BoardsPage() {
     if (!mounted) return;
     localStorage.setItem(KEYS.calledSongs, JSON.stringify([...calledSongs]));
   }, [calledSongs, mounted]);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setKeyboardOffset(window.innerHeight - vv.height - vv.offsetTop);
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => { vv.removeEventListener("resize", update); vv.removeEventListener("scroll", update); };
+  }, []);
 
   function isCalled(text: string) {
     return !!text.trim() && calledSongs.has(normalize(text));
@@ -486,7 +496,7 @@ export default function BoardsPage() {
 
       {/* Fixed suggestion bar — sits above keyboard on mobile */}
       {activeEdit && suggestions.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-zinc-900 border-t border-zinc-700 flex overflow-x-auto">
+        <div className="fixed left-0 right-0 z-50 bg-zinc-900 border-t border-zinc-700 flex overflow-x-auto" style={{ bottom: keyboardOffset }}>
           {suggestions.map((s) => (
             <button
               key={s}
