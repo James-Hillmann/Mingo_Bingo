@@ -299,7 +299,13 @@ export default function BoardsPage() {
   const usedOnActiveBoard = activeEdit
     ? new Set(boards[activeEdit.bi]?.grid.flat().map(c => normalize(c.text)).filter(Boolean))
     : new Set<string>();
-  const suggestions = activeEdit ? getSuggestions(activeEdit.query) : [];
+  const suggestions = activeEdit
+    ? getSuggestions(activeEdit.query).sort((a, b) => {
+        const aUsed = usedOnActiveBoard.has(normalize(a)) ? 1 : 0;
+        const bUsed = usedOnActiveBoard.has(normalize(b)) ? 1 : 0;
+        return aUsed - bUsed;
+      })
+    : [];
   const callSuggestions = searchQuery.trim()
     ? getSuggestions(searchQuery).sort((a, b) => {
         const aCalled = calledSongs.has(normalize(a)) ? 1 : 0;
