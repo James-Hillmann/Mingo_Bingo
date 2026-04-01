@@ -12,7 +12,7 @@ type Cell = { text: string };
 type Board = { name: string; grid: Cell[][] };
 type CalledResult = {
   song: string;
-  hits: { boardIndex: number; positions: string[] }[];
+  hits: { boardIndex: number; positions: string[]; status: "blackout" | "double" | "bingo" | null }[];
 };
 type ActiveEdit = { bi: number; ri: number; ci: number; query: string };
 type FillTrigger = { bi: number; ri: number; ci: number; value: string; key: number };
@@ -215,7 +215,26 @@ export default function BoardsPage() {
       });
     });
     const resolved = matchingTexts.size === 1 ? [...matchingTexts][0] : normalize(q);
-    setCalledSongs((prev) => new Set([...prev, resolved]));
+    const newCalledSongs = new Set([...calledSongs, resolved]);
+    setCalledSongs(newCalledSongs);
+    const isCalledIn = (text: string, called: Set<string>) => !!text.trim() && called.has(normalize(text));
+    const getBingoStatusWith = (board: Board, called: Set<string>): "blackout" | "double" | "bingo" | null => {
+      const g = board.grid;
+      const hit = (r: number, c: number) => isCalledIn(g[r][c].text, called);
+      const lines = [
+        [0,1,2,3,4].map(c => hit(0,c)), [0,1,2,3,4].map(c => hit(1,c)),
+        [0,1,2,3,4].map(c => hit(2,c)), [0,1,2,3,4].map(c => hit(3,c)),
+        [0,1,2,3,4].map(c => hit(4,c)), [0,1,2,3,4].map(r => hit(r,0)),
+        [0,1,2,3,4].map(r => hit(r,1)), [0,1,2,3,4].map(r => hit(r,2)),
+        [0,1,2,3,4].map(r => hit(r,3)), [0,1,2,3,4].map(r => hit(r,4)),
+        [0,1,2,3,4].map(i => hit(i,i)), [0,1,2,3,4].map(i => hit(i,4-i)),
+      ];
+      const completed = lines.filter(l => l.every(Boolean)).length;
+      if (g.flat().every(cell => isCalledIn(cell.text, called))) return "blackout";
+      if (completed >= 2) return "double";
+      if (completed >= 1) return "bingo";
+      return null;
+    };
     const hits: CalledResult["hits"] = [];
     boards.forEach((board, bi) => {
       const positions: string[] = [];
@@ -224,7 +243,7 @@ export default function BoardsPage() {
           if (normalize(cell.text) === resolved) positions.push(`Row ${ri + 1}, Col ${ci + 1}`);
         })
       );
-      if (positions.length) hits.push({ boardIndex: bi, positions });
+      if (positions.length) hits.push({ boardIndex: bi, positions, status: getBingoStatusWith(board, newCalledSongs) });
     });
     setLastResult({ song: resolved, hits });
     setSearchQuery("");
@@ -268,7 +287,13 @@ export default function BoardsPage() {
   }
 
   const suggestions = activeEdit ? getSuggestions(activeEdit.query) : [];
-  const callSuggestions = searchQuery.trim() ? getSuggestions(searchQuery) : [];
+  const callSuggestions = searchQuery.trim()
+    ? getSuggestions(searchQuery).sort((a, b) => {
+        const aCalled = calledSongs.has(normalize(a)) ? 1 : 0;
+        const bCalled = calledSongs.has(normalize(b)) ? 1 : 0;
+        return aCalled - bCalled;
+      })
+    : [];
   const liveHits = searchQuery.trim()
     ? boards.flatMap((board, bi) => {
         const positions: string[] = [];
@@ -347,9 +372,14 @@ export default function BoardsPage() {
               {lastResult.hits.length === 0 ? (
                 <p className="text-zinc-500 text-xs">Not found on any board</p>
               ) : lastResult.hits.map((h) => (
-                <p key={h.boardIndex} className="text-green-400 text-xs">
-                  {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
-                </p>
+                <div key={h.boardIndex} className="flex items-center gap-2 flex-wrap">
+                  <p className="text-green-400 text-xs">
+                    {boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}: {h.positions.join(" · ")}
+                  </p>
+                  {h.status === "blackout" && <span className="text-[10px] font-bold uppercase tracking-wide bg-yellow-500 text-black rounded px-1.5 py-0.5">Blackout!</span>}
+                  {h.status === "double" && <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-600 text-white rounded px-1.5 py-0.5">Double Bingo!</span>}
+                  {h.status === "bingo" && <span className="text-[10px] font-bold uppercase tracking-wide bg-green-600 text-white rounded px-1.5 py-0.5">Bingo!</span>}
+                </div>
               ))}
             </div>
           )}

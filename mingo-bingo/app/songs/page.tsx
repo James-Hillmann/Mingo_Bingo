@@ -83,6 +83,7 @@ function SongsContent() {
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [songSearch, setSongSearch] = useState("");
   const codeHandled = useRef(false);
 
   useEffect(() => {
@@ -221,21 +222,45 @@ function SongsContent() {
               </button>
             </div>
 
-            {unplayed.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Unplayed — {unplayed.length}</p>
-                <div className="flex flex-col divide-y divide-zinc-800/60">
-                  {unplayed.map((t, i) => <TrackRow key={i} track={t} played={false} />)}
-                </div>
-              </div>
-            )}
-            {played.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">Played — {played.length}</p>
-                <div className="flex flex-col divide-y divide-zinc-800/60">
-                  {played.map((t, i) => <TrackRow key={i} track={t} played={true} />)}
-                </div>
-              </div>
+            <input
+              type="text"
+              placeholder="Search songs…"
+              value={songSearch}
+              onChange={(e) => setSongSearch(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-zinc-500"
+            />
+
+            {songSearch.trim() ? (
+              (() => {
+                const q = songSearch.toLowerCase().trim();
+                const results = tracks.filter((t) => t.name.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q));
+                return results.length === 0 ? (
+                  <p className="text-zinc-600 text-sm text-center py-4">No songs found</p>
+                ) : (
+                  <div className="flex flex-col divide-y divide-zinc-800/60">
+                    {results.map((t, i) => <TrackRow key={i} track={t} played={calledSongs.has(t.name.toLowerCase().trim())} />)}
+                  </div>
+                );
+              })()
+            ) : (
+              <>
+                {unplayed.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Unplayed — {unplayed.length}</p>
+                    <div className="flex flex-col divide-y divide-zinc-800/60">
+                      {unplayed.map((t, i) => <TrackRow key={i} track={t} played={false} />)}
+                    </div>
+                  </div>
+                )}
+                {played.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">Played — {played.length}</p>
+                    <div className="flex flex-col divide-y divide-zinc-800/60">
+                      {played.map((t, i) => <TrackRow key={i} track={t} played={true} />)}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             <button onClick={() => { clearTokens(); setConnected(false); setTracks([]); setPlaylistName(null); }} className="text-zinc-600 hover:text-zinc-400 text-xs text-center transition-colors">
