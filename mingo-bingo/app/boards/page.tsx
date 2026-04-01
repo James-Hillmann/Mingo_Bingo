@@ -92,7 +92,6 @@ function EditableCell({
       prevFillKey.current = fillTrigger.key;
       onChange(fillTrigger.value);
       setEditing(false);
-      onQueryChange?.(fillTrigger.value);
     }
   }, [fillTrigger]);
 
@@ -228,10 +227,13 @@ export default function BoardsPage() {
   }
 
   function getSuggestions(query: string): string[] {
-    if (!query.trim() || songNames.length === 0) return [];
+    const source = songNames.length > 0
+      ? songNames
+      : [...new Set(boards.flatMap(b => b.grid.flat().map(c => c.text.trim()).filter(Boolean)))];
+    if (!query.trim() || source.length === 0) return [];
     const q = normalize(query);
-    const startsWith = songNames.filter(s => normalize(s).startsWith(q)).sort((a, b) => a.length - b.length);
-    const contains = songNames.filter(s => !normalize(s).startsWith(q) && normalize(s).includes(q)).sort((a, b) => a.length - b.length);
+    const startsWith = source.filter(s => normalize(s).startsWith(q)).sort((a, b) => a.length - b.length);
+    const contains = source.filter(s => !normalize(s).startsWith(q) && normalize(s).includes(q)).sort((a, b) => a.length - b.length);
     return [...startsWith, ...contains].slice(0, MAX_SUGGESTIONS);
   }
 
@@ -264,8 +266,8 @@ export default function BoardsPage() {
     }
   }
 
-  function callSong() {
-    const q = searchQuery.trim();
+  function callSong(override?: string, prevToRemove?: string) {
+    const q = (override ?? searchQuery).trim();
     if (!q) return;
     const matchingTexts = new Set<string>();
     boards.forEach((board) => {
@@ -276,6 +278,7 @@ export default function BoardsPage() {
     });
     const resolved = matchingTexts.size === 1 ? [...matchingTexts][0] : normalize(q);
     const newCalledSongs = new Set([...calledSongs, resolved]);
+    if (prevToRemove) newCalledSongs.delete(prevToRemove);
     setCalledSongs(newCalledSongs);
     const isCalledIn = (text: string, called: Set<string>) => !!text.trim() && called.has(normalize(text));
     const getBingoStatusWith = (board: Board, called: Set<string>): "blackout" | "double" | "bingo" | null => {
@@ -357,11 +360,13 @@ export default function BoardsPage() {
       })
     : [];
   const callSuggestions = searchQuery.trim()
-    ? getSuggestions(searchQuery).sort((a, b) => {
-        const aCalled = calledSongs.has(normalize(a)) ? 1 : 0;
-        const bCalled = calledSongs.has(normalize(b)) ? 1 : 0;
-        return aCalled - bCalled;
-      })
+    ? getSuggestions(searchQuery)
+        .filter((s) => normalize(s) !== normalize(searchQuery))
+        .sort((a, b) => {
+          const aCalled = calledSongs.has(normalize(a)) ? 1 : 0;
+          const bCalled = calledSongs.has(normalize(b)) ? 1 : 0;
+          return aCalled - bCalled;
+        })
     : [];
 
   if (!mounted) return null;
@@ -391,7 +396,7 @@ export default function BoardsPage() {
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-zinc-500"
             />
             <button
-              onClick={callSong}
+              onClick={() => callSong()}
               disabled={!searchQuery.trim()}
               className="px-4 py-3 rounded-lg bg-green-700 hover:bg-green-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-semibold transition-colors"
             >
@@ -422,17 +427,21 @@ export default function BoardsPage() {
               <p className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">
                 "{lastResult.song}"
               </p>
-              {lastResult.hits.length === 0 ? (
-                <p className="text-zinc-500 text-xs">Not found on any board</p>
-              ) : lastResult.hits.map((h) => (
-                <div key={h.boardIndex} className="flex items-center gap-2 flex-wrap">
-                  <MiniBingoBoard board={boards[h.boardIndex]} hitCoords={h.coords} calledSongs={calledSongs} />
-                  <p className="text-green-400 text-xs">{boards[h.boardIndex]?.name || `Board ${h.boardIndex + 1}`}</p>
-                  {h.status === "blackout" && <span className="text-[10px] font-bold uppercase tracking-wide bg-yellow-500 text-black rounded px-1.5 py-0.5">Blackout!</span>}
-                  {h.status === "double" && <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-600 text-white rounded px-1.5 py-0.5">Double Bingo!</span>}
-                  {h.status === "bingo" && <span className="text-[10px] font-bold uppercase tracking-wide bg-green-600 text-white rounded px-1.5 py-0.5">Bingo!</span>}
-                </div>
-              ))}
+              <div className="flex flex-wrap gap-3 items-start">
+                {boards.map((board, bi) => {
+                  const hit = lastResult.hits.find((h) => h.boardIndex === bi);
+                  const status = hit?.status ?? null;
+                  return (
+                    <div key={bi} className="flex flex-col items-center gap-1">
+                      <p className="text-zinc-500 text-[10px]">{board.name || `Board ${bi + 1}`}</p>
+                      <MiniBingoBoard board={board} hitCoords={hit?.coords ?? []} calledSongs={calledSongs} />
+                      {status === "blackout" && <span className="text-[10px] font-bold uppercase tracking-wide bg-yellow-500 text-black rounded px-1.5 py-0.5">Blackout!</span>}
+                      {status === "double" && <span className="text-[10px] font-bold uppercase tracking-wide bg-purple-600 text-white rounded px-1.5 py-0.5">Double Bingo!</span>}
+                      {status === "bingo" && <span className="text-[10px] font-bold uppercase tracking-wide bg-green-600 text-white rounded px-1.5 py-0.5">Bingo!</span>}
+                    </div>
+                  );
+                })}
+              </div>
               {lastResult.hits.length === 0 && lookupState === "idle" && spotifyConnected && (
                 <button
                   onClick={() => identifyShow(lastResult.song)}
@@ -448,7 +457,7 @@ export default function BoardsPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-zinc-300 text-xs">Sounds like <span className="text-white font-semibold">{lookupResult}</span></span>
                   <button
-                    onClick={() => { setSearchQuery(lookupResult); setLookupState("idle"); setLookupResult(null); setLastResult(null); }}
+                    onClick={() => { callSong(lookupResult, lastResult?.song ?? undefined); setLookupState("idle"); setLookupResult(null); setLastResult(null); }}
                     className="text-xs bg-green-700 hover:bg-green-600 text-white rounded-lg px-3 py-1 font-semibold transition-colors"
                   >
                     Call it

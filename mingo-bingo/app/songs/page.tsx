@@ -84,6 +84,7 @@ function SongsContent() {
   const [connected, setConnected] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [songSearch, setSongSearch] = useState("");
+  const [tvShowsMode, setTvShowsMode] = useState(false);
   const codeHandled = useRef(false);
 
   useEffect(() => {
@@ -102,7 +103,9 @@ function SongsContent() {
       if (called) setCalledSongs(new Set(JSON.parse(called)));
       const hasToken = !!localStorage.getItem(KEYS.spRefresh);
       setConnected(hasToken);
-      if (hasToken && !saved) fetchPlaylists();
+      const tvMode = localStorage.getItem(KEYS.tvShowsMode) === "true";
+      setTvShowsMode(tvMode);
+      if (hasToken && !saved && !tvMode) fetchPlaylists();
     } catch {}
     setMounted(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -191,6 +194,12 @@ function SongsContent() {
     [KEYS.songsName, KEYS.songsTracks].forEach((k) => localStorage.removeItem(k));
   }
 
+  function toggleTvShowsMode() {
+    const next = !tvShowsMode;
+    setTvShowsMode(next);
+    localStorage.setItem(KEYS.tvShowsMode, String(next));
+  }
+
   if (!mounted) return null;
 
   const unplayed = tracks.filter((t) => !calledSongs.has(t.name.toLowerCase().trim()));
@@ -199,9 +208,22 @@ function SongsContent() {
   return (
     <main className="min-h-screen bg-zinc-950 flex flex-col items-center px-4 py-8">
       <div className="w-full max-w-sm flex flex-col gap-6">
-        <h1 className="text-xl font-black tracking-tight text-white uppercase">Songs</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-black tracking-tight text-white uppercase">Songs</h1>
+          <button
+            onClick={toggleTvShowsMode}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${tvShowsMode ? "bg-purple-700 border-purple-500 text-white" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}
+          >
+            TV Shows
+          </button>
+        </div>
 
-        {!connected ? (
+        {tvShowsMode ? (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-5 flex flex-col gap-2">
+            <p className="text-white text-sm font-semibold">TV Shows mode</p>
+            <p className="text-zinc-400 text-xs">No playlist needed — song names are matched to show names via Claude.</p>
+          </div>
+        ) : !connected ? (
           <div className="flex flex-col gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-5">
             <p className="text-white text-sm font-semibold">Connect Spotify</p>
             <p className="text-zinc-400 text-xs">Sign in to load songs from your playlists.</p>
