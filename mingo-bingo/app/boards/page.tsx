@@ -169,11 +169,14 @@ export default function BoardsPage() {
       const savedSongs = localStorage.getItem(KEYS.calledSongs);
       if (savedSongs) setCalledSongs(new Set(JSON.parse(savedSongs)));
 
-      // Load playlist songs for autocomplete
-      const savedTracks = localStorage.getItem(KEYS.songsTracks);
-      if (savedTracks) {
-        const tracks: { name: string }[] = JSON.parse(savedTracks);
-        setSongNames(tracks.map((t) => t.name));
+      // Load playlist songs for autocomplete (skip in TV shows mode)
+      const tvShowsMode = localStorage.getItem(KEYS.tvShowsMode) === "true";
+      if (!tvShowsMode) {
+        const savedTracks = localStorage.getItem(KEYS.songsTracks);
+        if (savedTracks) {
+          const tracks: { name: string }[] = JSON.parse(savedTracks);
+          setSongNames(tracks.map((t) => t.name));
+        }
       }
       setSpotifyConnected(!!localStorage.getItem(KEYS.spRefresh));
     } catch {}
