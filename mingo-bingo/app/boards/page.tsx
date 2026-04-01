@@ -20,7 +20,7 @@ type FillTrigger = { bi: number; ri: number; ci: number; value: string; key: num
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normalize(s: string) {
-  return s.toLowerCase().trim();
+  return s.toLowerCase().trim().replace(/[\u2018\u2019\u201A\u201B\u02BC\u0060]/g, "'");
 }
 
 const emptyBoard = (name = ""): Board => ({
@@ -352,7 +352,7 @@ export default function BoardsPage() {
 
           {calledSongs.size > 0 && (
             <div className="flex flex-wrap gap-1 pt-1">
-              {[...calledSongs].map((s) => (
+              {[...calledSongs].reverse().map((s) => (
                 <button
                   key={s}
                   onClick={() => setCalledSongs((prev) => { const next = new Set(prev); next.delete(s); return next; })}
