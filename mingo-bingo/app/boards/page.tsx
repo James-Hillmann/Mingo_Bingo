@@ -114,12 +114,13 @@ function EditableCell({
         onBlur={(e) => {
           onChange(e.target.value);
           setEditing(false);
-          onQueryChange?.(e.target.value);
+          onQueryChange?.("");
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             onChange((e.target as HTMLInputElement).value);
             setEditing(false);
+            onQueryChange?.("");
             onNext?.();
           }
         }}
