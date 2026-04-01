@@ -286,7 +286,10 @@ export default function BoardsPage() {
     setTimeout(() => advanceFocus(bi, ri, ci), 0);
   }
 
-  const suggestions = activeEdit ? getSuggestions(activeEdit.query) : [];
+  const suggestions = activeEdit ? (() => {
+    const usedOnBoard = new Set(boards[activeEdit.bi]?.grid.flat().map(c => normalize(c.text)).filter(Boolean));
+    return getSuggestions(activeEdit.query).filter(s => !usedOnBoard.has(normalize(s)));
+  })() : [];
   const callSuggestions = searchQuery.trim()
     ? getSuggestions(searchQuery).sort((a, b) => {
         const aCalled = calledSongs.has(normalize(a)) ? 1 : 0;
@@ -312,7 +315,14 @@ export default function BoardsPage() {
     <main className="min-h-screen bg-zinc-950 flex flex-col items-center px-4 py-8">
       <div className="w-full max-w-sm flex flex-col gap-6">
 
-        <h1 className="text-xl font-black tracking-tight text-white uppercase">My Boards</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-black tracking-tight text-white uppercase">My Boards</h1>
+          {calledSongs.size > 0 && (
+            <span className="text-xs font-semibold text-zinc-400 bg-zinc-800 border border-zinc-700 rounded-full px-3 py-1">
+              {calledSongs.size} called
+            </span>
+          )}
+        </div>
 
         {/* Search / call a song */}
         <div className="flex flex-col gap-2">
@@ -448,21 +458,6 @@ export default function BoardsPage() {
               )}
             </div>
 
-            {/* Autocomplete suggestions for this board */}
-            {activeEdit?.bi === bi && suggestions.length > 0 && (
-              <div className="flex flex-col rounded-lg overflow-hidden border border-zinc-700">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    onPointerDown={(e) => e.preventDefault()}
-                    onClick={() => handleSuggestionTap(s)}
-                    className="text-left px-3 py-2 text-sm text-zinc-200 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border-b border-zinc-700 last:border-0 transition-colors"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         ))}
 
@@ -488,6 +483,22 @@ export default function BoardsPage() {
           Reset everything
         </button>
       </div>
+
+      {/* Fixed suggestion bar — sits above keyboard on mobile */}
+      {activeEdit && suggestions.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-zinc-900 border-t border-zinc-700 flex overflow-x-auto">
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => handleSuggestionTap(s)}
+              className="shrink-0 px-4 py-3 text-sm text-zinc-200 hover:bg-zinc-700 active:bg-zinc-600 border-r border-zinc-700 last:border-0 transition-colors whitespace-nowrap"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
     </main>
   );
 }
