@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { KEYS } from "@/lib/keys";
+import { loadCount, saveCount } from "@/lib/storage";
 
 const MAX_BOARDS = 20;
 const MAX_SUGGESTIONS = 6;
@@ -257,6 +258,7 @@ export default function BoardsPage() {
     });
     setLastResult({ song: resolved, hits });
     setSearchQuery("");
+    saveCount(Math.min(75, loadCount() + 1));
   }
 
   function addBoard() {
